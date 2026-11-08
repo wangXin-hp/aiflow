@@ -1,6 +1,7 @@
 {
   "version": "0.2",
   "useGitignore": true,
+  "ignoreRegExpList": ["/%[0-9a-f]{2}[a-z]*/gi"],
   "files": [
     "apps/**/*.{ts,tsx,js,jsx,css,md}",
     "packages/**/*.{ts,tsx,js,jsx,md}"

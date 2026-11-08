@@ -1,28 +1,20 @@
-import { useEffect, useState } from "react";
-import type { HealthResponse } from "@aiflow/contracts";
+import { Navigate, Route, Routes } from "react-router-dom";
+import { ProtectedRoute } from "./auth/protected-route";
+import { LoginPage } from "./pages/login-page";
+import { VerifyEmailPage } from "./pages/verify-email-page";
+import { AppHomePage } from "./pages/app-home-page";
+
 export function App() {
-  const [status, setStatus] = useState("正在连接 API…");
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/health", { signal: controller.signal })
-      .then((response) => {
-        if (!response.ok) throw new Error("API unavailable");
-        return response.json() as Promise<HealthResponse>;
-      })
-      .then((result) =>
-        setStatus(result.status === "ok" ? "API 已连接" : "API 状态异常"),
-      )
-      .catch(() => {
-        if (!controller.signal.aborted) setStatus("API 未连接，请检查服务");
-      });
-    return () => controller.abort();
-  }, []);
   return (
-    <main>
-      <p className="eyebrow">AIFLOW / WORKSPACE</p>
-      <h1>AIFlow</h1>
-      <p>AI 工作流平台正在搭建中。</p>
-      <p className="status">{status}</p>
-    </main>
+    <div className="app-shell">
+      <Routes>
+        <Route path="/account/login" element={<LoginPage />} />
+        <Route path="/account/verify" element={<VerifyEmailPage />} />
+        <Route element={<ProtectedRoute />}>
+          <Route path="/apps" element={<AppHomePage />} />
+        </Route>
+        <Route path="*" element={<Navigate to="/apps" replace />} />
+      </Routes>
+    </div>
   );
 }

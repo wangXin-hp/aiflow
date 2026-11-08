@@ -1,6 +1,6 @@
 # AIFlow
 
-个人 AI 工作流平台，当前处于工程初始化阶段。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供前端占位页面、API 健康检查、PostgreSQL 用户持久化与邮箱认证 API，以及独立的工作流协议与支持转换、条件分支的内存执行引擎；工作流 API、画布与模型尚未实现。
+个人 AI 工作流平台，当前处于工程初始化阶段。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供 React 登录、注册、邮箱验证与受保护的个人主页、API 健康检查、PostgreSQL 用户持久化与邮箱认证 API，以及独立的工作流协议与支持转换、条件分支的内存执行引擎；工作流 API、画布与模型尚未实现。
 
 ## 环境与运行
 
@@ -58,6 +58,8 @@ pnpm build
 生产部署、反向代理和安全配置尚未提供，当前服务仅用于本地开发。
 
 ## 认证 API
+
+前端入口为 `/account/login`（可切换注册）、`/account/verify?token=...`（邮件验证）和 `/apps`（个人主页）。首次访问会检查当前会话，未登录时返回登录页并保留原站内地址；服务暂不可用时提供重试。注册后需查收邮件完成验证再登录。登录后显示公开用户资料，可退出并清空前端会话缓存；会话令牌不会进入 JavaScript 或浏览器存储。
 
 匿名接口为 `POST /api/auth/register`、`GET /api/auth/verify?token=...`、`POST /api/auth/verification/resend` 和 `POST /api/auth/login`；`GET /api/auth/me`、`POST /api/auth/logout` 要求已验证会话。请求字段由共享契约约束：注册接受 `email`、`password`、可选 `name`，登录接受 `email`、`password`，重发仅接受 `email`。认证成功返回 `{ success: true, data, message? }`，错误返回 `{ code, message, details? }`，健康检查保持原有 `{ status, service }`。
 
