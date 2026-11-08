@@ -1,1 +1,4 @@
 aiflow
+fulltext
+ollama
+qdrant
