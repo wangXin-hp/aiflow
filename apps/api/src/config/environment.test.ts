@@ -154,3 +154,44 @@ describe("environment configuration", () => {
     ).not.toHaveProperty("PATH");
   });
 });
+
+// 限流配置属于安全边界：缺省生效，显式值必须为正整数。
+describe("authentication rate limit configuration", () => {
+  const keys = [
+    "AUTH_LOGIN_RATE_LIMIT",
+    "AUTH_LOGIN_RATE_WINDOW_MS",
+    "AUTH_RESEND_RATE_LIMIT",
+    "AUTH_RESEND_RATE_WINDOW_MS",
+  ];
+  it("loads defaults and coerces explicit numeric settings", () => {
+    expect(loadEnvironment(development)).toMatchObject({
+      AUTH_LOGIN_RATE_LIMIT: 5,
+      AUTH_LOGIN_RATE_WINDOW_MS: 60000,
+      AUTH_RESEND_RATE_LIMIT: 3,
+      AUTH_RESEND_RATE_WINDOW_MS: 900000,
+    });
+    expect(
+      loadEnvironment({
+        ...development,
+        AUTH_LOGIN_RATE_LIMIT: "7",
+        AUTH_LOGIN_RATE_WINDOW_MS: "12000",
+        AUTH_RESEND_RATE_LIMIT: "4",
+        AUTH_RESEND_RATE_WINDOW_MS: "30000",
+      }),
+    ).toMatchObject({
+      AUTH_LOGIN_RATE_LIMIT: 7,
+      AUTH_LOGIN_RATE_WINDOW_MS: 12000,
+      AUTH_RESEND_RATE_LIMIT: 4,
+      AUTH_RESEND_RATE_WINDOW_MS: 30000,
+    });
+  });
+  it.each(["0", "-1", "1.5", "", "never"])(
+    "rejects invalid rate settings %s",
+    (value) => {
+      for (const key of keys)
+        expect(() => loadEnvironment({ ...development, [key]: value })).toThrow(
+          new RegExp(key),
+        );
+    },
+  );
+});

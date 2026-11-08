@@ -38,6 +38,10 @@ export const EnvironmentSchema = z
       .min(32)
       .refine((value) => value.trim().length >= 32),
     JWT_EXPIRES_IN_SECONDS: positiveInteger.default(604800),
+    AUTH_LOGIN_RATE_LIMIT: positiveInteger.default(5),
+    AUTH_LOGIN_RATE_WINDOW_MS: positiveInteger.default(60000),
+    AUTH_RESEND_RATE_LIMIT: positiveInteger.default(3),
+    AUTH_RESEND_RATE_WINDOW_MS: positiveInteger.default(900000),
     AUTH_EMAIL_MODE: z.enum(["console", "smtp"]).default("console"),
     SMTP_HOST: optionalText,
     SMTP_PORT: port.default(465),

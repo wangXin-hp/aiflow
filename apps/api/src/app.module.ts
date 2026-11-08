@@ -1,9 +1,12 @@
 import { Module } from "@nestjs/common";
 import { ConfigModule } from "@nestjs/config";
+import { APP_FILTER } from "@nestjs/core";
 import { resolve } from "node:path";
 import { loadEnvironment } from "./config/environment.js";
 import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health.js";
+import { AuthModule } from "./auth/auth.module.js";
+import { ApiExceptionFilter } from "./common/api-exception.filter.js";
 
 @Module({
   imports: [
@@ -15,7 +18,9 @@ import { HealthController } from "./health.js";
       skipProcessEnv: true,
     }),
     PrismaModule,
+    AuthModule,
   ],
   controllers: [HealthController],
+  providers: [{ provide: APP_FILTER, useClass: ApiExceptionFilter }],
 })
 export class AppModule {}
