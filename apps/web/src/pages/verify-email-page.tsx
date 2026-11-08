@@ -1,8 +1,15 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { ApiClientError, authApi } from "../auth/auth-api";
+import { ResendVerificationForm } from "../auth/resend-verification-form";
 
-function Verification({ token }: { token: string }) {
+function Verification({
+  token,
+  onFailure,
+}: {
+  token: string;
+  onFailure: () => void;
+}) {
   const pending = useRef<ReturnType<typeof authApi.verify> | null>(null);
   const [state, setState] = useState<{
     status: "loading" | "success" | "error";
@@ -18,7 +25,7 @@ function Verification({ token }: { token: string }) {
           setState({ status: "success", message: "邮箱验证成功，请登录" });
       })
       .catch((error: unknown) => {
-        if (active)
+        if (active) {
           setState({
             status: "error",
             message:
@@ -26,11 +33,13 @@ function Verification({ token }: { token: string }) {
                 ? error.message
                 : "验证失败，请稍后重试",
           });
+          onFailure();
+        }
       });
     return () => {
       active = false;
     };
-  }, [token]);
+  }, [onFailure, token]);
   return (
     <p
       className={state.status === "error" ? "error-banner" : "notice"}
@@ -44,6 +53,8 @@ function Verification({ token }: { token: string }) {
 export function VerifyEmailPage() {
   const [search] = useSearchParams();
   const token = search.get("token");
+  const [showRecovery, setShowRecovery] = useState(!token);
+  const showResend = useCallback(() => setShowRecovery(true), []);
   return (
     <main className="auth-card">
       <p className="brand">
@@ -51,12 +62,13 @@ export function VerifyEmailPage() {
       </p>
       <h1>验证邮箱</h1>
       {token ? (
-        <Verification key={token} token={token} />
+        <Verification key={token} token={token} onFailure={showResend} />
       ) : (
         <p className="error-banner" role="alert">
           缺少验证链接，请使用邮件中的完整链接。
         </p>
       )}
+      {showRecovery && <ResendVerificationForm />}
       <Link className="back-link" to="/account/login">
         返回登录
       </Link>

@@ -16,7 +16,7 @@ import { PUBLIC_ROUTE } from "./public.decorator.js";
 
 export const SESSION_COOKIE = "aiflow_session";
 
-/** 全局默认拒绝：公开标记仅跳过身份验证，不能绕过携带会话 Cookie 的 Origin 检查。 */
+/** 全局默认拒绝：公开标记仅跳过身份验证，不能绕过不可信浏览器来源。 */
 @Injectable()
 export class AuthGuard implements CanActivate {
   constructor(
@@ -31,12 +31,16 @@ export class AuthGuard implements CanActivate {
     const cookies = request.cookies as Record<string, unknown> | undefined;
     const hasSession =
       cookies !== undefined && Object.hasOwn(cookies, SESSION_COOKIE);
-    // 即使 Cookie 为空或 JWT 无效，也必须先执行 CSRF 边界；非浏览器无 Cookie 调用保持可用。
-    if (hasSession && !["GET", "HEAD", "OPTIONS"].includes(request.method)) {
+    if (!["GET", "HEAD", "OPTIONS"].includes(request.method)) {
       const trustedOrigin = new URL(
         this.configuration.get("WEB_PUBLIC_URL", { infer: true }),
       ).origin;
-      if (request.get("Origin") !== trustedOrigin)
+      const suppliedOrigin = request.get("Origin");
+      // 显式 Origin 代表浏览器来源，匿名登录同样可能建立/替换会话；只有无 Cookie、无 Origin 的 CLI 调用可跳过。
+      if (
+        (suppliedOrigin !== undefined && suppliedOrigin !== trustedOrigin) ||
+        (hasSession && suppliedOrigin !== trustedOrigin)
+      )
         throw new ApiError(403, "ORIGIN_FORBIDDEN", "请求来源无效");
     }
     if (

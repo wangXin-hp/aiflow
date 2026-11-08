@@ -2,12 +2,17 @@ import { useState } from "react";
 import { Navigate, useSearchParams } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { LoginRequestSchema, RegisterRequestSchema } from "@aiflow/contracts";
+import {
+  LoginRequestSchema,
+  RegisterRequestSchema,
+  ResendVerificationRequestSchema,
+} from "@aiflow/contracts";
 import type { z } from "zod";
 import { ApiClientError, authApi } from "../auth/auth-api";
 import { useAuth } from "../auth/auth-state";
 import { sanitizeRedirect } from "../auth/redirect";
 import { SessionStatus } from "../auth/session-status";
+import { ResendVerificationForm } from "../auth/resend-verification-form";
 
 type Fields = z.input<typeof RegisterRequestSchema>;
 export function LoginPage() {
@@ -16,6 +21,7 @@ export function LoginPage() {
   const [registering, setRegistering] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
+  const [recoveryEmail, setRecoveryEmail] = useState("");
   const {
     register,
     handleSubmit,
@@ -38,10 +44,12 @@ export function LoginPage() {
     setRegistering(!registering);
     setError("");
     setNotice("");
+    setRecoveryEmail("");
   }
   const submit = handleSubmit(async (values) => {
     setError("");
     setNotice("");
+    setRecoveryEmail("");
     try {
       if (registering) {
         await authApi.register(RegisterRequestSchema.parse(values));
@@ -52,6 +60,15 @@ export function LoginPage() {
         await auth.login(LoginRequestSchema.parse(values));
       }
     } catch (failure) {
+      if (
+        failure instanceof ApiClientError &&
+        ["EMAIL_NOT_VERIFIED", "EMAIL_DELIVERY_FAILED"].includes(failure.code)
+      ) {
+        const parsed = ResendVerificationRequestSchema.safeParse({
+          email: values.email,
+        });
+        if (parsed.success) setRecoveryEmail(parsed.data.email);
+      }
       setError(
         failure instanceof ApiClientError
           ? failure.code === "EMAIL_NOT_VERIFIED"
@@ -85,6 +102,15 @@ export function LoginPage() {
         <p className="error-banner" role="alert" aria-live="polite">
           {error}
         </p>
+      )}
+      {recoveryEmail && (
+        <ResendVerificationForm
+          initialEmail={recoveryEmail}
+          onSuccess={(message) => {
+            setNotice(message);
+            setError("");
+          }}
+        />
       )}
       <form
         onSubmit={(event) => {

@@ -3,11 +3,13 @@ import {
   AuthMessageResponseSchema,
   AuthUserResponseSchema,
   RegisterResponseSchema,
+  ResendVerificationRequestSchema,
   apiSuccessSchema,
   type ApiErrorResponse,
   type ApiSuccess,
   type LoginRequest,
   type RegisterRequest,
+  type ResendVerificationRequest,
 } from "@aiflow/contracts";
 import type { z } from "zod";
 
@@ -65,7 +67,9 @@ async function request<T extends z.ZodType>(
     throw requestFailed();
   }
 }
-const post = (body?: LoginRequest | RegisterRequest): RequestInit => ({
+const post = (
+  body?: LoginRequest | RegisterRequest | ResendVerificationRequest,
+): RequestInit => ({
   method: "POST",
   ...(body
     ? {
@@ -88,6 +92,13 @@ export const authApi = {
       `verify?${new URLSearchParams({ token })}`,
       AuthMessageResponseSchema,
       { signal },
+    ),
+  /** 服务端始终返回账号无关消息，前端不得据此推断邮箱是否存在。 */
+  resendVerification: (input: ResendVerificationRequest) =>
+    request(
+      "verification/resend",
+      AuthMessageResponseSchema,
+      post(ResendVerificationRequestSchema.parse(input)),
     ),
   logout: () => request("logout", AuthMessageResponseSchema, post()),
 };

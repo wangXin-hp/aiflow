@@ -61,9 +61,9 @@ pnpm build
 
 前端入口为 `/account/login`（可切换注册）、`/account/verify?token=...`（邮件验证）和 `/apps`（个人主页）。首次访问会检查当前会话，未登录时返回登录页并保留原站内地址；服务暂不可用时提供重试。注册后需查收邮件完成验证再登录。登录后显示公开用户资料，可退出并清空前端会话缓存；会话令牌不会进入 JavaScript 或浏览器存储。
 
-匿名接口为 `POST /api/auth/register`、`GET /api/auth/verify?token=...`、`POST /api/auth/verification/resend` 和 `POST /api/auth/login`；`GET /api/auth/me`、`POST /api/auth/logout` 要求已验证会话。请求字段由共享契约约束：注册接受 `email`、`password`、可选 `name`，登录接受 `email`、`password`，重发仅接受 `email`。认证成功返回 `{ success: true, data, message? }`，错误返回 `{ code, message, details? }`，健康检查保持原有 `{ status, service }`。
+匿名接口为 `POST /api/auth/register`、`GET /api/auth/verify?token=...`、`POST /api/auth/verification/resend`、`POST /api/auth/login` 和幂等的 `POST /api/auth/logout`；`GET /api/auth/me` 要求已验证会话。请求字段由共享契约约束：注册接受 `email`、`password`、可选 `name`，登录接受 `email`、`password`，重发仅接受 `email`。认证成功返回 `{ success: true, data, message? }`，错误返回 `{ code, message, details? }`，健康检查保持原有 `{ status, service }`。
 
-登录仅通过 `aiflow_session` Cookie 返回会话，响应 JSON 不含 token。Cookie 使用 HttpOnly、SameSite=Lax、Path=/、7 天有效期，生产环境启用 Secure；退出清除相同作用域的 Cookie。浏览器请求需携带 credentials，CORS 仅允许 `WEB_PUBLIC_URL` 的同源地址。携带会话 Cookie 的非 GET/HEAD/OPTIONS 请求必须提供与该地址精确匹配的 Origin，否则返回 403；无 Cookie 的匿名接口可由非浏览器调用。登录和重发同时按来源 IP、规范化邮箱分别限流，超限统一返回 429。两种计数均只保存在当前进程，重启会清空，多实例部署需要共享存储。
+登录仅通过 `aiflow_session` Cookie 返回会话，响应 JSON 不含 token。Cookie 使用 HttpOnly、SameSite=Lax、Path=/、7 天有效期，生产环境启用 Secure；退出无需有效会话也会清除相同作用域的 Cookie。浏览器请求需携带 credentials，CORS 仅允许 `WEB_PUBLIC_URL` 的同源地址。非 GET/HEAD/OPTIONS 请求只要显式携带 Origin 就必须与该地址精确匹配；携带会话 Cookie 时还必须提供可信 Origin。无 Cookie、无 Origin 的匿名接口仍可由 CLI 等非浏览器客户端调用。登录和重发同时按来源 IP、规范化邮箱分别限流，超限统一返回 429。两种计数均只保存在当前进程，重启会清空，多实例部署需要共享存储。
 
 ## 代码质量与提交
 

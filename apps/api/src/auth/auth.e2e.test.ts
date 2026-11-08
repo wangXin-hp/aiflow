@@ -158,17 +158,19 @@ describe("authentication HTTP boundary (real PostgreSQL)", () => {
     return header[0]!;
   }
 
-  it("allows public health but denies new routes and me/logout without a session", async () => {
+  it("allows public health, keeps logout idempotent and denies protected routes without a session", async () => {
     expect((await request(app.getHttpServer()).get("/api/health")).status).toBe(
       200,
     );
     for (const path of ["/api/probe", "/api/auth/me"])
       error(await request(app.getHttpServer()).get(path), 401, "UNAUTHORIZED");
-    error(
-      await request(app.getHttpServer()).post("/api/auth/logout"),
-      401,
-      "UNAUTHORIZED",
-    );
+    const logout = await request(app.getHttpServer()).post("/api/auth/logout");
+    expect(logout.status).toBe(200);
+    expect(logout.body).toEqual({
+      success: true,
+      data: { message: "已退出登录" },
+    });
+    expect(cookie(logout)).toMatch(/^aiflow_session=;/);
   });
 
   it("completes register → verify → login → me → logout with safe envelopes and cookies", async () => {
@@ -319,7 +321,7 @@ describe("authentication HTTP boundary (real PostgreSQL)", () => {
     );
   }, 20000);
 
-  it("requires exact trusted Origin on every unsafe request carrying a session cookie", async () => {
+  it("rejects every explicit untrusted Origin while preserving Origin-less CLI requests", async () => {
     const { address } = await verified();
     const session = cookie(await login(address)).split(";")[0]!;
     for (const untrusted of [
@@ -351,6 +353,31 @@ describe("authentication HTTP boundary (real PostgreSQL)", () => {
       403,
       "ORIGIN_FORBIDDEN",
     );
+    for (const untrusted of [
+      "https://evil.example",
+      "null",
+      "http://localhost:5173",
+    ]) {
+      error(
+        await request(app.getHttpServer())
+          .post("/api/auth/login")
+          .set("Origin", untrusted)
+          .type("form")
+          .send({ email: address, password }),
+        403,
+        "ORIGIN_FORBIDDEN",
+      );
+    }
+    expect(
+      (
+        await request(app.getHttpServer())
+          .post("/api/auth/login")
+          .set("Origin", origin)
+          .send({ email: address, password })
+      ).status,
+    ).toBe(200);
+    // 无 Origin 且无 Cookie 代表非浏览器客户端，仍保留匿名 API 能力。
+    expect((await login(address)).status).toBe(200);
     expect(
       (
         await request(app.getHttpServer())
@@ -360,6 +387,18 @@ describe("authentication HTTP boundary (real PostgreSQL)", () => {
       ).status,
     ).toBe(200);
   }, 20000);
+
+  it("clears invalid sessions through repeatable logout without authenticating them", async () => {
+    for (const session of [undefined, "aiflow_session=invalid.jwt"]) {
+      let pending = request(app.getHttpServer())
+        .post("/api/auth/logout")
+        .set("Origin", origin);
+      if (session) pending = pending.set("Cookie", session);
+      const response = await pending;
+      expect(response.status).toBe(200);
+      expect(cookie(response)).toMatch(/^aiflow_session=;/);
+    }
+  });
 
   it("allows credentialed CORS only for the configured web origin", async () => {
     const trusted = await request(app.getHttpServer())

@@ -90,6 +90,7 @@ export class AuthController {
     return { success: true as const, data: { user } };
   }
   @Post("logout")
+  @Public()
   @HttpCode(200)
   logout(@Res({ passthrough: true }) response: Response) {
     response.clearCookie(SESSION_COOKIE, this.cookieOptions());

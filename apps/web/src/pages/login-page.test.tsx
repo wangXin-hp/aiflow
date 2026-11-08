@@ -191,6 +191,84 @@ describe("login and registration", () => {
     await ui.click(screen.getByRole("button", { name: "登录" }));
     expect(await screen.findByRole("alert")).toHaveTextContent(message);
   });
+
+  it("sends new verification after an unverified login without exposing account state", async () => {
+    const ui = userEvent.setup();
+    handlers["/api/auth/login"] = () =>
+      Response.json(
+        { code: "EMAIL_NOT_VERIFIED", message: "请先验证邮箱" },
+        { status: 403 },
+      );
+    handlers["/api/auth/verification/resend"] = (init) =>
+      init.method === "POST" &&
+      init.body === JSON.stringify({ email: "alice@example.com" })
+        ? success({ message: "如果账号可验证，我们已发送邮件" })
+        : unauthorized();
+    mount();
+    await ui.type(await screen.findByLabelText("邮箱"), "alice@example.com");
+    await ui.type(screen.getByLabelText("密码"), "password-123");
+    await ui.click(screen.getByRole("button", { name: "登录" }));
+    await ui.click(
+      await screen.findByRole("button", { name: "重新发送验证邮件" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "如果账号可验证，我们已发送邮件",
+    );
+  });
+
+  it("recovers a persisted registration after email delivery fails", async () => {
+    const ui = userEvent.setup();
+    handlers["/api/auth/register"] = () =>
+      Response.json(
+        { code: "EMAIL_DELIVERY_FAILED", message: "验证邮件发送失败" },
+        { status: 503 },
+      );
+    handlers["/api/auth/verification/resend"] = () =>
+      success({ message: "如果账号可验证，我们已发送邮件" });
+    mount();
+    await ui.click(await screen.findByRole("button", { name: "创建账号" }));
+    await ui.type(screen.getByLabelText("邮箱"), "alice@example.com");
+    await ui.type(screen.getByLabelText("密码"), "password-123");
+    await ui.click(screen.getByRole("button", { name: "注册" }));
+    await ui.click(
+      await screen.findByRole("button", { name: "重新发送验证邮件" }),
+    );
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "如果账号可验证，我们已发送邮件",
+    );
+  });
+
+  it("disables duplicate resend and presents rate-limit feedback", async () => {
+    const ui = userEvent.setup();
+    let resolve!: (response: Response) => void;
+    handlers["/api/auth/login"] = () =>
+      Response.json(
+        { code: "EMAIL_NOT_VERIFIED", message: "请先验证邮箱" },
+        { status: 403 },
+      );
+    handlers["/api/auth/verification/resend"] = () =>
+      new Promise((done) => {
+        resolve = done;
+      });
+    mount();
+    await ui.type(await screen.findByLabelText("邮箱"), "alice@example.com");
+    await ui.type(screen.getByLabelText("密码"), "password-123");
+    await ui.click(screen.getByRole("button", { name: "登录" }));
+    await ui.click(
+      await screen.findByRole("button", { name: "重新发送验证邮件" }),
+    );
+    const pending = screen.getByRole("button", { name: "正在发送…" });
+    expect(pending).toBeDisabled();
+    await act(async () =>
+      resolve(
+        Response.json(
+          { code: "RATE_LIMITED", message: "请求过于频繁，请稍后重试" },
+          { status: 429 },
+        ),
+      ),
+    );
+    expect(await screen.findByText("请求过于频繁，请稍后重试")).toBeVisible();
+  });
 });
 
 describe("email verification", () => {
@@ -237,6 +315,16 @@ describe("email verification", () => {
     mount("/account/verify?token=expired");
     expect(await screen.findByRole("alert")).toHaveTextContent(
       "验证链接已失效",
+    );
+    handlers["/api/auth/verification/resend"] = (init) =>
+      init.body === JSON.stringify({ email: "alice@example.com" })
+        ? success({ message: "如果账号可验证，我们已发送邮件" })
+        : unauthorized();
+    const ui = userEvent.setup();
+    await ui.type(screen.getByLabelText("邮箱"), "alice@example.com");
+    await ui.click(screen.getByRole("button", { name: "重新发送验证邮件" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "如果账号可验证，我们已发送邮件",
     );
   });
 });
