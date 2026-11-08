@@ -7,6 +7,12 @@
   },
   "scripts": {
     "dev": "turbo dev",
+    "infra:up": "docker compose up -d --wait",
+    "infra:down": "docker compose down",
+    "infra:logs": "docker compose logs -f",
+    "db:generate": "pnpm --filter @aiflow/api db:generate",
+    "db:migrate": "pnpm --filter @aiflow/api db:migrate",
+    "db:deploy": "pnpm --filter @aiflow/api db:deploy",
     "build": "turbo build",
     "typecheck": "turbo typecheck",
     "lint": "eslint .",

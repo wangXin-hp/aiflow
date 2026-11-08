@@ -9,10 +9,40 @@
 ```sh
 corepack enable
 pnpm install --frozen-lockfile
+```
+
+首次运行时将 `.env.example` 复制为根目录的 `.env`，已有 `.env` 时保留原文件。把 `JWT_SECRET=replace-me` 替换为至少 32 字符的随机密钥；可用 `node -e "console.log(require('node:crypto').randomBytes(32).toString('hex'))"` 生成。真实密钥仅写入本机 `.env`，不要提交到 Git。
+
+安装并启动 Docker Desktop 后，在仓库根目录运行：
+
+```sh
+docker compose config --quiet
+pnpm infra:up
 pnpm dev
 ```
 
+`infra:up` 使用 `docker compose up -d --wait`，直到 PostgreSQL 与 Qdrant 健康后才返回。镜像固定为 `postgres:17.11-alpine3.24` 和 `qdrant/qdrant:v1.20.0`。两者使用具名卷持久化，仅向本机 `127.0.0.1` 开放 PostgreSQL 5432、Qdrant HTTP 6333 和 gRPC 6334。`pnpm infra:logs` 跟踪日志；`pnpm infra:down` 停止服务并保留数据卷。示例数据库口令 `aiflow` 只供本地开发；修改 `POSTGRES_*` 时同步修改 `DATABASE_URL`，已初始化卷的口令不会随环境变量自动改变。
+
 访问 Vite 启动时显示的地址（默认 http://localhost:5173），API 默认监听 127.0.0.1:3000，开发代理将 `/api` 转发给 API。健康检查为 `GET /api/health`。如果本机 Corepack 缓存失效，可使用 `npx --yes pnpm@10.34.9 install --frozen-lockfile` 及 `npx --yes pnpm@10.34.9 dev`。
+
+API 无论从仓库根目录还是 `apps/api` 启动，都会读取根目录 `.env`，进程环境变量优先。配置在监听端口前统一校验；缺失 JWT 密钥、无效 URL/端口、非正整数执行限制或生产环境使用 console 邮件模式都会阻止启动。
+
+| 配置                                                           | 默认值与约束                                                            |
+| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `NODE_ENV`                                                     | `development`，可选 `development`、`test`、`production`                 |
+| `API_HOST` / `API_PORT`                                        | `127.0.0.1` / `3000`；端口为 1–65535                                    |
+| `DATABASE_URL`                                                 | `postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow`                      |
+| `QDRANT_URL` / `QDRANT_API_KEY`                                | `http://127.0.0.1:6333` / 可选密钥                                      |
+| `WEB_PUBLIC_URL`                                               | `http://127.0.0.1:5173`，邮件回调所用的公开前端地址                     |
+| `JWT_SECRET` / `JWT_EXPIRES_IN_SECONDS`                        | 密钥必填且至少 32 字符 / `604800` 秒（7 天）                            |
+| `AUTH_EMAIL_MODE`                                              | `console`；生产环境必须显式设置 `smtp`                                  |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM`      | smtp 模式必填，console 模式可缺省                                       |
+| `SMTP_PORT` / `SMTP_SECURE`                                    | `465` / `true`；布尔值仅接受 `true` 或 `false`                          |
+| `ARK_API_KEY` / `ARK_MODEL_ID` / `ARK_BASE_URL`                | 密钥和模型可选；基础地址默认 `https://ark.cn-beijing.volces.com/api/v3` |
+| `RUN_NODE_TIMEOUT_MS` / `RUN_TOTAL_TIMEOUT_MS`                 | `30000` / `300000` 毫秒，均为正整数                                     |
+| `RUN_MAX_NODES` / `RUN_MAX_CONCURRENT` / `RUN_EVENT_MAX_BYTES` | `100` / `4` / `65536`，均为正整数                                       |
+
+`pnpm db:generate`、`pnpm db:migrate`、`pnpm db:deploy` 分别预留 Prisma 客户端生成、开发迁移和部署迁移入口；Prisma 依赖、schema 与迁移会在后续数据库任务中提供，当前阶段这些命令尚不可用。
 
 ```sh
 pnpm lint
