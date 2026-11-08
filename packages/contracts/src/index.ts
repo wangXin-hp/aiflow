@@ -4,3 +4,4 @@ export interface HealthResponse {
 }
 export * from "./workflow.js";
 export * from "./workflow-v2.js";
+export * from "./auth.js";

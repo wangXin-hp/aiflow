@@ -11,6 +11,7 @@ export default tseslint.config(
       "**/node_modules/**",
       "**/coverage/**",
       ".turbo/**",
+      ".superpowers/**",
       "apps/api/src/generated/prisma/**",
     ],
   },

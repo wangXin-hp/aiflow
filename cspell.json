@@ -5,7 +5,12 @@
     "apps/**/*.{ts,tsx,js,jsx,css,md}",
     "packages/**/*.{ts,tsx,js,jsx,md}"
   ],
-  "ignorePaths": ["**/node_modules/**", "**/dist/**", "**/coverage/**"],
+  "ignorePaths": [
+    "**/node_modules/**",
+    "**/dist/**",
+    "**/coverage/**",
+    ".superpowers/**"
+  ],
   "dictionaryDefinitions": [
     {
       "name": "project-words",
