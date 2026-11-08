@@ -11,6 +11,10 @@ jobs:
           node-version: 24.9.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # 生成被忽略的客户端；此步骤不连接数据库，CI 不需要真实凭据。
+      - run: pnpm db:generate
+        env:
+          DATABASE_URL: postgresql://ci:ci@127.0.0.1:5432/aiflow
       - run: pnpm format:check
       - run: pnpm lint
       - run: pnpm lint:style

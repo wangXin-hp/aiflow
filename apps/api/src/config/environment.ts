@@ -27,6 +27,9 @@ export const EnvironmentSchema = z
     DATABASE_URL: z
       .url({ protocol: /^postgres(ql)?$/ })
       .default("postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow"),
+    DATABASE_POOL_MAX: positiveInteger.default(10),
+    DATABASE_CONNECTION_TIMEOUT_MS: positiveInteger.default(5000),
+    DATABASE_IDLE_TIMEOUT_MS: positiveInteger.default(30000),
     QDRANT_URL: httpUrl.default("http://127.0.0.1:6333"),
     QDRANT_API_KEY: optionalSecret,
     WEB_PUBLIC_URL: httpUrl.default("http://127.0.0.1:5173"),

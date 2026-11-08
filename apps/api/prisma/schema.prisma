@@ -1,0 +1,25 @@
+// 生成客户端参与 TypeScript 构建；生成物不提交，安装后须执行 db:generate。
+generator client {
+  provider            = "prisma-client"
+  output              = "../src/generated/prisma"
+  moduleFormat        = "esm"
+  importFileExtension = "js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// 邮箱由后续认证服务规范化；数据库只负责唯一约束，不修改输入内容。
+model User {
+  id                         String    @id @default(uuid()) @db.Uuid
+  email                      String    @unique
+  passwordHash               String
+  name                       String?
+  avatarUrl                  String?
+  emailVerifiedAt            DateTime?
+  verificationTokenHash      String?
+  verificationTokenExpiresAt DateTime?
+  createdAt                  DateTime  @default(now())
+  updatedAt                  DateTime  @updatedAt
+}
