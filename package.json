@@ -1,0 +1,63 @@
+{
+  "name": "aiflow",
+  "private": true,
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=24.9.0 <25"
+  },
+  "scripts": {
+    "dev": "turbo dev",
+    "build": "turbo build",
+    "typecheck": "turbo typecheck",
+    "lint": "eslint .",
+    "test": "turbo test",
+    "format:check": "prettier --check .",
+    "lint:fix": "eslint . --fix",
+    "lint:style": "stylelint \"apps/**/*.{css,scss}\"",
+    "spellcheck": "cspell --no-progress",
+    "format": "prettier --write .",
+    "lint:staged": "lint-staged",
+    "commitlint": "commitlint",
+    "commit": "git-cz",
+    "prepare": "husky"
+  },
+  "devDependencies": {
+    "@commitlint/cli": "^21.2.4",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@eslint/js": "^9.39.1",
+    "@types/node": "^24.0.0",
+    "commitizen": "^4.3.2",
+    "cspell": "^10.4.1",
+    "cz-git": "^1.14.0",
+    "eslint": "^9.39.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.7",
+    "globals": "^16.5.0",
+    "husky": "^9.1.7",
+    "lint-staged": "^17.6.0",
+    "prettier": "^3.7.3",
+    "stylelint": "^18.0.0",
+    "stylelint-config-standard": "^41.0.0",
+    "turbo": "2.11.10",
+    "typescript": "~5.9.3",
+    "typescript-eslint": "^8.48.0"
+  },
+  "config": {
+    "commitizen": {
+      "path": "node_modules/cz-git"
+    }
+  },
+  "lint-staged": {
+    "*.{js,jsx,mjs,cjs,ts,tsx}": [
+      "eslint --fix",
+      "prettier --write"
+    ],
+    "*.{css,scss}": [
+      "stylelint --fix",
+      "prettier --write"
+    ],
+    "*.{json,md,yaml,yml,html}": [
+      "prettier --write"
+    ]
+  }
+}

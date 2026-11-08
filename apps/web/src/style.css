@@ -1,0 +1,36 @@
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: #f4f6fb;
+  color: #17213a;
+  font-family: system-ui, sans-serif;
+}
+
+main {
+  max-width: 720px;
+  margin: 14vh auto;
+  padding: 3rem;
+  background: white;
+  border: 1px solid #e2e8f0;
+  border-radius: 18px;
+}
+
+h1 {
+  font-size: 3rem;
+  margin: 1rem 0;
+}
+
+.eyebrow {
+  color: #536cb0;
+  font-size: 0.8rem;
+  letter-spacing: 0.15em;
+  font-weight: 700;
+}
+
+.status {
+  margin-top: 2rem;
+  color: #475569;
+}
