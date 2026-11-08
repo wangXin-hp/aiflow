@@ -59,7 +59,10 @@ export class AuthService {
       verificationTokenExpiresAt: token.expiresAt,
     });
     try {
-      await this.mail.sendVerificationEmail(user.email, token.token);
+      await this.mail.sendVerificationEmail({
+        to: user.email,
+        token: token.token,
+      });
     } catch {
       throw new AuthError("EMAIL_DELIVERY_FAILED");
     }
@@ -96,7 +99,10 @@ export class AuthService {
         )
       ) {
         try {
-          await this.mail.sendVerificationEmail(user.email, token.token);
+          await this.mail.sendVerificationEmail({
+            to: user.email,
+            token: token.token,
+          });
         } catch {
           // 不透出 SMTP 异常或账号存在性；持久化的未验证用户仍可再次请求重发。
         }

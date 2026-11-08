@@ -6,6 +6,7 @@ import { getRounds } from "bcryptjs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { PublicUserSchema } from "@aiflow/contracts";
 import { loadEnvironment } from "../config/environment.js";
+import { MailService } from "../mail/mail.service.js";
 import { AuthService } from "./auth.service.js";
 import {
   AuthError,
@@ -67,11 +68,11 @@ class MemoryUsers implements AuthUserRepository {
 }
 
 class EmailOutbox implements VerificationEmailSender {
-  messages: { email: string; token: string }[] = [];
+  messages: { to: string; token: string }[] = [];
   fail = false;
-  async sendVerificationEmail(email: string, token: string) {
+  async sendVerificationEmail(input: { to: string; token: string }) {
     if (this.fail) throw new Error("SMTP internal secret");
-    this.messages.push({ email, token });
+    this.messages.push(input);
   }
 }
 
@@ -87,6 +88,7 @@ const simplePasswords: PasswordHasher = {
 function fixture(
   passwords: PasswordHasher = simplePasswords,
   jwtExpires = "604800",
+  delivery?: VerificationEmailSender,
 ) {
   const users = new MemoryUsers();
   const mail = new EmailOutbox();
@@ -99,7 +101,13 @@ function fixture(
   );
   const jwt = new JwtService();
   const sessions = new SessionTokenService(jwt, configuration);
-  const auth = new AuthService(users, passwords, tokens, sessions, mail);
+  const auth = new AuthService(
+    users,
+    passwords,
+    tokens,
+    sessions,
+    delivery ?? mail,
+  );
   return { users, mail, tokens, jwt, auth };
 }
 
@@ -127,7 +135,7 @@ describe("AuthService", () => {
       passwordHash: "hashed: secret  ",
     });
     expect(mail.messages).toHaveLength(1);
-    expect(mail.messages[0]?.email).toBe("alice@example.com");
+    expect(mail.messages[0]?.to).toBe("alice@example.com");
   });
 
   it("stores an absent or blank name as null", async () => {
@@ -361,5 +369,55 @@ describe("AuthService", () => {
     expect(
       await auth.resendVerification({ email: "missing@example.com" }),
     ).toEqual(resendResult);
+  });
+
+  it("persists before SMTP delivery and recovers failed registration and resend through a rotated token", async () => {
+    const delivered: string[] = [];
+    let unavailable = true;
+    const sender = new MailService(
+      new ConfigService(
+        loadEnvironment({
+          JWT_SECRET: "a".repeat(32),
+          AUTH_EMAIL_MODE: "smtp",
+          SMTP_HOST: "smtp.example.com",
+          SMTP_USER: "test-account",
+          SMTP_PASSWORD: "test-password",
+          SMTP_FROM: "AIFlow <verify@example.com>",
+        }),
+      ),
+      () => ({
+        async sendMail(message) {
+          expect(await users.findByEmail("alice@example.com")).toMatchObject({
+            emailVerifiedAt: null,
+          });
+          if (unavailable)
+            throw new Error("SMTP private test-account test-password");
+          delivered.push(message.html);
+        },
+      }),
+      { log: vi.fn() },
+    );
+    const { auth, users } = fixture(simplePasswords, "604800", sender);
+    await expect(auth.register(registration)).rejects.toMatchObject({
+      code: "EMAIL_DELIVERY_FAILED",
+      message: "验证邮件发送失败，请稍后重发",
+    });
+    const user = (await users.findById("user-1"))!;
+    const firstHash = user.verificationTokenHash;
+    expect(user.emailVerifiedAt).toBeNull();
+    expect(
+      await auth.resendVerification({ email: registration.email }),
+    ).toEqual(resendResult);
+    expect(user.verificationTokenHash).not.toBe(firstHash);
+    const failedResendHash = user.verificationTokenHash;
+    unavailable = false;
+    expect(
+      await auth.resendVerification({ email: registration.email }),
+    ).toEqual(resendResult);
+    expect(user.verificationTokenHash).not.toBe(failedResendHash);
+    expect(delivered).toHaveLength(1);
+    const link = delivered[0]!.match(/href="([^"]+)"/)![1]!;
+    const token = new URL(link).searchParams.get("token")!;
+    expect(await auth.verifyEmail(token)).toEqual(verifyResult);
   });
 });

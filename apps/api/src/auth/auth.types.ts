@@ -61,7 +61,10 @@ export abstract class SessionTokenManager {
 
 /** 邮件实现只在发送边界接触明文 token；失败必须 reject，由领域确定公开行为。 */
 export abstract class VerificationEmailSender {
-  abstract sendVerificationEmail(email: string, token: string): Promise<void>;
+  abstract sendVerificationEmail(input: {
+    to: string;
+    token: string;
+  }): Promise<void>;
 }
 
 const authErrorMessages = {
