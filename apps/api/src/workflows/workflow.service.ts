@@ -16,6 +16,7 @@ import { ApiError } from "../common/api-error.js";
 import { toWorkflowResponse } from "./workflow.mapper.js";
 import {
   WORKFLOW_REPOSITORY,
+  type UpdateWorkflowRecord,
   type WorkflowRepository,
 } from "./workflow.repository.js";
 
@@ -127,14 +128,16 @@ export class WorkflowService {
         "工作流版本已达到上限",
       );
     }
-    const changes = {
-      ...requestedChanges,
-      ...(requestedChanges.definition === undefined
-        ? {}
-        : {
-            definition: parseExecutableDefinition(requestedChanges.definition),
-          }),
-    };
+    // 可选字段的显式 undefined 与 JSON 中的缺失一致；候选校验和 Prisma 必须消费同一份规范化修改集。
+    const changes: UpdateWorkflowRecord["changes"] = {};
+    if (requestedChanges.name !== undefined)
+      changes.name = requestedChanges.name;
+    if (requestedChanges.description !== undefined)
+      changes.description = requestedChanges.description;
+    if (requestedChanges.definition !== undefined)
+      changes.definition = parseExecutableDefinition(
+        requestedChanges.definition,
+      );
     // 校验“即将保存”的完整投影：替换定义可修复旧数据，元数据更新则必须继承并验证旧定义。
     parseStoredWorkflow({
       ...current,

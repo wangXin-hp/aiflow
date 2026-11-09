@@ -58,6 +58,7 @@ class MemoryWorkflowRepository implements WorkflowRepository {
   records = new Map<string, WorkflowRecord>();
   createCount = 0;
   updateCount = 0;
+  lastUpdateInput?: UpdateWorkflowRecord;
   lastListInput?: ListWorkflowsInput;
   private nextId = 0;
 
@@ -116,6 +117,7 @@ class MemoryWorkflowRepository implements WorkflowRepository {
 
   async updateActiveAtRevision(input: UpdateWorkflowRecord) {
     this.updateCount += 1;
+    this.lastUpdateInput = input;
     const record = this.records.get(input.id);
     if (
       !record ||
@@ -258,6 +260,63 @@ describe("WorkflowService", () => {
       definition: validDefinition,
     });
     expect(updated).toMatchObject({ name: "新名称", revision: 2 });
+  });
+
+  it.each([
+    [
+      "description/definition",
+      { name: "新名称", description: undefined, definition: undefined },
+      ["name"],
+      { name: "新名称", description: "原描述", definition: validDefinition },
+    ],
+    [
+      "name/definition",
+      { name: undefined, description: "新描述", definition: undefined },
+      ["description"],
+      { name: "客户问答", description: "新描述", definition: validDefinition },
+    ],
+    [
+      "name/description",
+      { name: undefined, description: undefined, definition: validDefinition },
+      ["definition"],
+      { name: "客户问答", description: "原描述", definition: validDefinition },
+    ],
+  ])(
+    "忽略显式 undefined 的 %s 并让候选校验与仓储写入使用同一 changes",
+    async (_label, optionalChanges, expectedKeys, expected) => {
+      const { service, repository } = fixture();
+      const workflow = await service.create(ownerA, {
+        name: "客户问答",
+        description: "原描述",
+        definition: validDefinition,
+      });
+
+      await expect(
+        service.update(ownerA, workflow.id, {
+          revision: 1,
+          ...optionalChanges,
+        }),
+      ).resolves.toMatchObject({ ...expected, revision: 2 });
+      expect(Object.keys(repository.lastUpdateInput!.changes)).toEqual(
+        expectedKeys,
+      );
+    },
+  );
+
+  it("显式 undefined 组成的空补丁在仓储读取和写入前被拒绝", async () => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 1,
+        name: undefined,
+        description: undefined,
+        definition: undefined,
+      }),
+    ).rejects.toThrow();
+    expect(repository.updateCount).toBe(0);
+    expect(repository.lastUpdateInput).toBeUndefined();
   });
 
   it("将活动记录的旧 revision 映射为冲突且不部分修改字段", async () => {

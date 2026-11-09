@@ -80,6 +80,34 @@ describe("workflow API contracts", () => {
     }
   });
 
+  it("允许真实修改旁带显式 undefined，但把仅 undefined 视为空补丁", () => {
+    for (const input of [
+      {
+        revision: 1,
+        name: "新名称",
+        description: undefined,
+        definition: undefined,
+      },
+      {
+        revision: 1,
+        name: undefined,
+        description: "新描述",
+        definition: undefined,
+      },
+      { revision: 1, name: undefined, description: undefined, definition },
+    ]) {
+      expect(UpdateWorkflowRequestSchema.safeParse(input).success).toBe(true);
+    }
+    expect(
+      UpdateWorkflowRequestSchema.safeParse({
+        revision: 1,
+        name: undefined,
+        description: undefined,
+        definition: undefined,
+      }).success,
+    ).toBe(false);
+  });
+
   it("只接受完整的 Workflow V2 定义", () => {
     expect(
       CreateWorkflowRequestSchema.safeParse({ name: "ok", definition }).success,
