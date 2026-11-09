@@ -69,6 +69,8 @@ model KnowledgeBase {
   owner             User     @relation(fields: [ownerId], references: [id], onDelete: Restrict)
   documents         KnowledgeDocument[]
 
+  // 复合候选键供文档外键同时校验知识库 ID 与租户归属。
+  @@unique([id, ownerId])
   @@index([ownerId, createdAt, id])
 }
 
@@ -93,9 +95,9 @@ model KnowledgeDocument {
   createdAt       DateTime                @default(now())
   updatedAt       DateTime                @updatedAt
   owner           User                    @relation(fields: [ownerId], references: [id], onDelete: Restrict)
-  knowledgeBase   KnowledgeBase           @relation(fields: [knowledgeBaseId], references: [id], onDelete: Restrict)
+  knowledgeBase   KnowledgeBase           @relation(fields: [knowledgeBaseId, ownerId], references: [id, ownerId], onDelete: Restrict)
 
-  // ownerId 是直接的安全过滤边界，knowledgeBaseId 支持库内文档分页。
+  // ownerId 保留直接过滤路径；复合外键从数据库层禁止文档跨租户挂载知识库。
   @@index([ownerId, createdAt, id])
-  @@index([knowledgeBaseId, createdAt, id])
+  @@index([knowledgeBaseId, ownerId, createdAt, id])
 }
