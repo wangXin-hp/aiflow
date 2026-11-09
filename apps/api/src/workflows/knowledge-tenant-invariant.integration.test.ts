@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { Pool } from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
@@ -21,6 +23,19 @@ describe("knowledge document tenant invariant (real PostgreSQL)", () => {
 
   afterAll(async () => {
     await pool.end();
+  });
+
+  it("wraps the foreign-key replacement migration in one transaction", () => {
+    const migration = readFileSync(
+      resolve(
+        import.meta.dirname,
+        "../../prisma/migrations/20261109105430_enforce_knowledge_document_tenant/migration.sql",
+      ),
+      "utf8",
+    ).trim();
+
+    expect(migration).toMatch(/^BEGIN;/);
+    expect(migration).toMatch(/COMMIT;$/);
   });
 
   it("rejects a document owned by a different user than its knowledge base", async () => {

@@ -1,3 +1,5 @@
+BEGIN;
+
 -- 文档必须与知识库属于同一用户；保留 ownerId 可直接按租户过滤。
 ALTER TABLE "KnowledgeDocument"
 DROP CONSTRAINT "KnowledgeDocument_knowledgeBaseId_fkey";
@@ -15,3 +17,5 @@ ADD CONSTRAINT "KnowledgeDocument_knowledgeBaseId_ownerId_fkey"
 FOREIGN KEY ("knowledgeBaseId", "ownerId")
 REFERENCES "KnowledgeBase"("id", "ownerId")
 ON DELETE RESTRICT ON UPDATE CASCADE;
+
+COMMIT;
