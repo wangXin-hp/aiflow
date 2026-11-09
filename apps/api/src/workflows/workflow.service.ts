@@ -3,6 +3,7 @@ import {
   CreateWorkflowRequestSchema,
   UpdateWorkflowRequestSchema,
   WorkflowListQuerySchema,
+  WORKFLOW_REVISION_MAX,
   decodeWorkflowCursor,
   encodeWorkflowCursor,
   workflowV2Schema,
@@ -22,6 +23,10 @@ function notFound(): ApiError {
   return new ApiError(404, "WORKFLOW_NOT_FOUND", "工作流不存在");
 }
 
+function corruptDefinition(): ApiError {
+  return new ApiError(500, "WORKFLOW_DEFINITION_CORRUPT", "工作流定义已损坏");
+}
+
 /** 结构校验与可执行图校验缺一不可；失败详情只包含稳定的代码和短消息。 */
 function parseExecutableDefinition(input: unknown): WorkflowV2 {
   const definition = workflowV2Schema.parse(input);
@@ -35,6 +40,20 @@ function parseExecutableDefinition(input: unknown): WorkflowV2 {
     );
   }
   return definition;
+}
+
+/** 存量数据属于服务端信任边界，损坏时返回固定错误且不得伪装成请求校验失败。 */
+function parseStoredWorkflow(
+  record: Parameters<typeof toWorkflowResponse>[0],
+): WorkflowResponse {
+  let response: WorkflowResponse;
+  try {
+    response = toWorkflowResponse(record);
+  } catch {
+    throw corruptDefinition();
+  }
+  if (!validateWorkflowV2(response.definition).valid) throw corruptDefinition();
+  return response;
 }
 
 @Injectable()
@@ -92,6 +111,23 @@ export class WorkflowService {
   ): Promise<WorkflowResponse> {
     const request = UpdateWorkflowRequestSchema.parse(input);
     const { revision, ...requestedChanges } = request;
+    const current = await this.repository.findActiveById(ownerId, id);
+    if (!current) throw notFound();
+    if (current.revision !== revision) {
+      throw new ApiError(
+        409,
+        "WORKFLOW_REVISION_CONFLICT",
+        "工作流已被其他修改覆盖，请刷新后重试",
+      );
+    }
+    parseStoredWorkflow(current);
+    if (revision === WORKFLOW_REVISION_MAX) {
+      throw new ApiError(
+        409,
+        "WORKFLOW_REVISION_EXHAUSTED",
+        "工作流版本已达到上限",
+      );
+    }
     const changes = {
       ...requestedChanges,
       ...(requestedChanges.definition === undefined
@@ -108,7 +144,7 @@ export class WorkflowService {
       revision,
       changes,
     });
-    if (updated) return toWorkflowResponse(updated);
+    if (updated) return parseStoredWorkflow(updated);
 
     // owner-scoped 查询只用于区分活动记录的版本冲突，不泄漏其他用户资源。
     const owned = await this.repository.findOwnedById(ownerId, id);

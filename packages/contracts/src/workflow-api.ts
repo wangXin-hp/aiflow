@@ -5,6 +5,13 @@ const workflowNameSchema = z.string().trim().min(1).max(100);
 const workflowDescriptionSchema = z.string().max(2000);
 const workflowIdSchema = z.uuid();
 const workflowTimestampSchema = z.iso.datetime();
+/** Prisma `Int` 映射 PostgreSQL signed integer，revision 不得超出其可查询范围。 */
+export const WORKFLOW_REVISION_MAX = 2_147_483_647;
+const workflowRevisionSchema = z
+  .number()
+  .int()
+  .min(1)
+  .max(WORKFLOW_REVISION_MAX);
 
 const workflowCursorValueSchema = z.strictObject({
   createdAt: workflowTimestampSchema,
@@ -33,7 +40,13 @@ export function encodeWorkflowCursor(value: WorkflowCursorValue): string {
 /** 在进入仓储前完整解析游标，失败时不返回部分排序键。 */
 export function decodeWorkflowCursor(cursor: string): WorkflowCursorValue {
   try {
-    return workflowCursorValueSchema.parse(JSON.parse(fromBase64Url(cursor)));
+    const decoded = workflowCursorValueSchema.parse(
+      JSON.parse(fromBase64Url(cursor)),
+    );
+    // 宽松 base64/JSON 解析会忽略空白或重复键；只接受唯一的规范编码。
+    if (encodeWorkflowCursor(decoded) !== cursor)
+      throw new Error("Non-canonical workflow cursor");
+    return decoded;
   } catch {
     throw new Error("Invalid workflow cursor");
   }
@@ -68,7 +81,7 @@ export const CreateWorkflowRequestSchema = z.strictObject({
 /** revision 是并发前置条件，且空补丁不应无意义地推进 revision。 */
 export const UpdateWorkflowRequestSchema = z
   .strictObject({
-    revision: z.number().int().positive(),
+    revision: workflowRevisionSchema,
     name: workflowNameSchema.optional(),
     description: workflowDescriptionSchema.optional(),
     definition: workflowV2Schema.optional(),
@@ -93,7 +106,7 @@ export const WorkflowResponseSchema = z.strictObject({
   name: workflowNameSchema,
   description: workflowDescriptionSchema,
   definition: workflowV2Schema,
-  revision: z.number().int().positive(),
+  revision: workflowRevisionSchema,
   createdAt: workflowTimestampSchema,
   updatedAt: workflowTimestampSchema,
 });

@@ -116,9 +116,42 @@ describe("workflow API contracts", () => {
           JSON.stringify({ createdAt: "invalid", id: cursorValue.id }),
         ).toString("base64url"),
       },
+      { cursor: `${cursor.slice(0, 4)}    ${cursor.slice(4)}` },
+      {
+        cursor: Buffer.from(
+          `{"createdAt":"invalid","createdAt":"${cursorValue.createdAt}","id":"${cursorValue.id}"}`,
+        ).toString("base64url"),
+      },
     ]) {
       expect(WorkflowListQuerySchema.safeParse(query).success).toBe(false);
     }
+  });
+
+  it("把 revision 限制在 PostgreSQL signed Int 正数范围", () => {
+    expect(
+      UpdateWorkflowRequestSchema.safeParse({
+        revision: 2_147_483_647,
+        name: "仍可解析",
+      }).success,
+    ).toBe(true);
+    expect(
+      UpdateWorkflowRequestSchema.safeParse({
+        revision: 2_147_483_648,
+        name: "数据库不可表达",
+      }).success,
+    ).toBe(false);
+    expect(
+      WorkflowResponseSchema.safeParse({
+        ...response,
+        revision: 2_147_483_647,
+      }).success,
+    ).toBe(true);
+    expect(
+      WorkflowResponseSchema.safeParse({
+        ...response,
+        revision: 2_147_483_648,
+      }).success,
+    ).toBe(false);
   });
 
   it("公开响应保持稳定且不接受数据库内部字段", () => {

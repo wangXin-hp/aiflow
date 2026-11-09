@@ -57,6 +57,7 @@ const invalidGraph: WorkflowV2 = {
 class MemoryWorkflowRepository implements WorkflowRepository {
   records = new Map<string, WorkflowRecord>();
   createCount = 0;
+  updateCount = 0;
   lastListInput?: ListWorkflowsInput;
   private nextId = 0;
 
@@ -114,6 +115,7 @@ class MemoryWorkflowRepository implements WorkflowRepository {
   }
 
   async updateActiveAtRevision(input: UpdateWorkflowRecord) {
+    this.updateCount += 1;
     const record = this.records.get(input.id);
     if (
       !record ||
@@ -215,6 +217,24 @@ describe("WorkflowService", () => {
     });
   });
 
+  it("在仓储查询前拒绝非规范游标", async () => {
+    const { service, repository } = fixture();
+    const canonical = Buffer.from(
+      JSON.stringify({
+        createdAt: "2026-11-08T08:30:00.000Z",
+        id: ids[0],
+      }),
+    ).toString("base64url");
+
+    await expect(
+      service.list(ownerA, {
+        limit: 20,
+        cursor: `${canonical.slice(0, 4)}    ${canonical.slice(4)}`,
+      }),
+    ).rejects.toThrow();
+    expect(repository.lastListInput).toBeUndefined();
+  });
+
   it("详情仅返回当前 owner 的未归档工作流", async () => {
     const { service } = fixture();
     const workflow = await create(service, ownerB);
@@ -262,6 +282,67 @@ describe("WorkflowService", () => {
       name: "当前名称",
       description: "",
       revision: 2,
+    });
+  });
+
+  it("在仓储写入前拒绝数据库不能表达的 revision", async () => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 2_147_483_648,
+        name: "禁止修改",
+      }),
+    ).rejects.toThrow();
+    expect(repository.updateCount).toBe(0);
+  });
+
+  it("revision 达到数据库上限后返回稳定冲突且不再尝试增长", async () => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+    repository.records.set(workflow.id, {
+      ...repository.records.get(workflow.id)!,
+      revision: 2_147_483_647,
+    });
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 2_147_483_647,
+        name: "无法再增长",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORKFLOW_REVISION_EXHAUSTED",
+    });
+    expect(repository.updateCount).toBe(0);
+  });
+
+  it.each([
+    ["结构损坏", { schemaVersion: 2, nodes: "corrupt", edges: [] }],
+    ["语义无效", invalidGraph],
+  ])("元数据更新前拒绝%s的存量定义且保持零写入", async (_label, definition) => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+    repository.records.set(workflow.id, {
+      ...repository.records.get(workflow.id)!,
+      definition,
+    });
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 1,
+        name: "不应写入",
+      }),
+    ).rejects.toMatchObject({
+      status: 500,
+      code: "WORKFLOW_DEFINITION_CORRUPT",
+      message: "工作流定义已损坏",
+    });
+    expect(repository.updateCount).toBe(0);
+    expect(repository.records.get(workflow.id)).toMatchObject({
+      name: "客户问答",
+      revision: 1,
     });
   });
 
