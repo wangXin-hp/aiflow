@@ -68,6 +68,16 @@ describe("toWorkflowResponse", () => {
     ).toThrow();
   });
 
+  it("用共享响应契约拒绝损坏的公开元数据", () => {
+    expect(() =>
+      toWorkflowResponse({
+        ...persistedWorkflow(),
+        id: "corrupt-id",
+        revision: 0,
+      }),
+    ).toThrow();
+  });
+
   it("只映射公开字段，不泄露 owner、归档状态或关联记录", () => {
     const response = toWorkflowResponse(persistedWorkflow());
 
