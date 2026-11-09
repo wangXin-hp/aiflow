@@ -318,6 +318,27 @@ describe("WorkflowService", () => {
     expect(repository.updateCount).toBe(0);
   });
 
+  it("revision 上限优先于损坏存量定义返回稳定冲突", async () => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+    repository.records.set(workflow.id, {
+      ...repository.records.get(workflow.id)!,
+      revision: 2_147_483_647,
+      definition: { schemaVersion: 2, nodes: "corrupt", edges: [] },
+    });
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 2_147_483_647,
+        name: "无法再增长",
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORKFLOW_REVISION_EXHAUSTED",
+    });
+    expect(repository.updateCount).toBe(0);
+  });
+
   it.each([
     ["结构损坏", { schemaVersion: 2, nodes: "corrupt", edges: [] }],
     ["语义无效", invalidGraph],
@@ -343,6 +364,33 @@ describe("WorkflowService", () => {
     expect(repository.records.get(workflow.id)).toMatchObject({
       name: "客户问答",
       revision: 1,
+    });
+  });
+
+  it.each([
+    ["结构损坏", { schemaVersion: 2, nodes: "corrupt", edges: [] }],
+    ["语义无效", invalidGraph],
+  ])("允许用有效替换定义修复%s的存量定义", async (_label, definition) => {
+    const { service, repository } = fixture();
+    const workflow = await create(service);
+    repository.records.set(workflow.id, {
+      ...repository.records.get(workflow.id)!,
+      definition,
+    });
+
+    await expect(
+      service.update(ownerA, workflow.id, {
+        revision: 1,
+        definition: validDefinition,
+      }),
+    ).resolves.toMatchObject({
+      definition: validDefinition,
+      revision: 2,
+    });
+    expect(repository.updateCount).toBe(1);
+    expect(repository.records.get(workflow.id)).toMatchObject({
+      definition: validDefinition,
+      revision: 2,
     });
   });
 

@@ -120,7 +120,6 @@ export class WorkflowService {
         "工作流已被其他修改覆盖，请刷新后重试",
       );
     }
-    parseStoredWorkflow(current);
     if (revision === WORKFLOW_REVISION_MAX) {
       throw new ApiError(
         409,
@@ -136,6 +135,12 @@ export class WorkflowService {
             definition: parseExecutableDefinition(requestedChanges.definition),
           }),
     };
+    // 校验“即将保存”的完整投影：替换定义可修复旧数据，元数据更新则必须继承并验证旧定义。
+    parseStoredWorkflow({
+      ...current,
+      ...changes,
+      revision: current.revision + 1,
+    });
 
     // 单条条件写入保证任何字段都不会在 revision 过期时部分落库。
     const updated = await this.repository.updateActiveAtRevision({
