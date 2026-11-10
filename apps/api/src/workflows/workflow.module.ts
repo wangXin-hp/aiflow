@@ -12,5 +12,6 @@ import { WorkflowService } from "./workflow.service.js";
     PrismaWorkflowRepository,
     { provide: WORKFLOW_REPOSITORY, useExisting: PrismaWorkflowRepository },
   ],
+  exports: [WORKFLOW_REPOSITORY],
 })
 export class WorkflowModule {}

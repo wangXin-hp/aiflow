@@ -7,6 +7,7 @@ import { PrismaModule } from "./database/prisma.module.js";
 import { HealthController } from "./health.js";
 import { AuthModule } from "./auth/auth.module.js";
 import { ApiExceptionFilter } from "./common/api-exception.filter.js";
+import { RunModule } from "./runs/run.module.js";
 import { WorkflowModule } from "./workflows/workflow.module.js";
 
 @Module({
@@ -20,6 +21,7 @@ import { WorkflowModule } from "./workflows/workflow.module.js";
     }),
     PrismaModule,
     AuthModule,
+    RunModule,
     WorkflowModule,
   ],
   controllers: [HealthController],
