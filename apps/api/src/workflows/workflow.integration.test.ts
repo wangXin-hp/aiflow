@@ -157,6 +157,17 @@ describe("workflow persistence (real PostgreSQL)", () => {
       }),
     ).resolves.toBeNull();
     await expect(
+      service.update(owner.id, workflow.id, {
+        revision: 1,
+        name: "stale service write",
+        description: "must not persist through service",
+        definition: alternateDefinition,
+      }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORKFLOW_REVISION_CONFLICT",
+    });
+    await expect(
       database.prisma.workflow.findUniqueOrThrow({
         where: { id: workflow.id },
       }),
@@ -303,9 +314,25 @@ describe("workflow persistence (real PostgreSQL)", () => {
       await database.prisma.workflow.count({ where: { ownerId: owner.id } }),
     ).toBe(countBefore);
 
-    for (const [label, definition] of [
-      ["semantic", invalidGraph],
-      ["structural", { schemaVersion: 2, nodes: "invalid", edges: [] }],
+    for (const [label, definition, expectedError] of [
+      [
+        "semantic",
+        invalidGraph,
+        { status: 400, code: "WORKFLOW_GRAPH_INVALID" },
+      ],
+      [
+        "structural",
+        { schemaVersion: 2, nodes: "invalid", edges: [] },
+        {
+          name: "ZodError",
+          issues: expect.arrayContaining([
+            expect.objectContaining({
+              code: "invalid_type",
+              path: ["definition", "nodes"],
+            }),
+          ]),
+        },
+      ],
     ] as const) {
       const valid = await service.create(owner.id, {
         name: `valid-${label}`,
@@ -318,14 +345,13 @@ describe("workflow persistence (real PostgreSQL)", () => {
       const beforeUpdateCount = await database.prisma.workflow.count({
         where: { ownerId: owner.id },
       });
-      await expect(
-        service.update(owner.id, valid.id, {
-          revision: 1,
-          name: "must not persist",
-          description: "must not persist",
-          definition,
-        }),
-      ).rejects.toThrow();
+      const update = service.update(owner.id, valid.id, {
+        revision: 1,
+        name: "must not persist",
+        description: "must not persist",
+        definition,
+      });
+      await expect(update).rejects.toMatchObject(expectedError);
       await expect(
         database.prisma.workflow.findUniqueOrThrow({ where: { id: valid.id } }),
       ).resolves.toEqual(beforeUpdate);
