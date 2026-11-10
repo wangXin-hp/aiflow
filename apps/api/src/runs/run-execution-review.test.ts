@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { NodeRegistryV2 } from "@aiflow/workflow-engine";
+import { Prisma } from "../generated/prisma/client.js";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
 import { loadEnvironment } from "../config/environment.js";
 import { RunCoordinator } from "./run-coordinator.js";
@@ -292,7 +293,13 @@ describe("execution review regressions (real PostgreSQL)", () => {
         finish: async (id, status, result) => {
           if (!failed && result?.output) {
             failed = true;
-            throw new Error("simulated JSONB rejection");
+            throw new Prisma.PrismaClientKnownRequestError(
+              "invalid JSONB output",
+              {
+                code: "P2007",
+                clientVersion: "7.10.1",
+              },
+            );
           }
           return store.finish(id, status, result);
         },
@@ -314,6 +321,155 @@ describe("execution review regressions (real PostgreSQL)", () => {
         where: { runId: run.id, type: "run.failed" },
       }),
     ).toBe(1);
+  });
+
+  it("finishes a malformed persisted snapshot without running the engine", async () => {
+    const { run } = await createRun("corrupt-snapshot");
+    await db.prisma.workflowRun.update({
+      where: { id: run.id },
+      data: { definitionSnapshot: { schemaVersion: 2, edges: [] } },
+    });
+    const coordinator = new RunCoordinator(
+      store,
+      {
+        run: async () => {
+          throw new Error("engine should not run");
+        },
+        registry: () => new NodeRegistryV2(),
+      },
+      { totalTimeoutMs: 1000, nodeTimeoutMs: 1000 },
+    );
+    await coordinator.execute(run.id);
+    const saved = await db.prisma.workflowRun.findUniqueOrThrow({
+      where: { id: run.id },
+    });
+    expect(saved).toMatchObject({
+      status: "FAILED",
+      errorCode: "run_definition_invalid",
+    });
+    expect(
+      await db.prisma.runEvent.count({
+        where: { runId: run.id, type: "run.failed" },
+      }),
+    ).toBe(1);
+  });
+
+  it("retries a transient terminal conflict with the original validated output", async () => {
+    const { run } = await createRun("terminal-conflict");
+    let attempts = 0;
+    const coordinator = new RunCoordinator(
+      {
+        load: (id) => store.load(id),
+        start: (id) => store.start(id),
+        log: (id, entry) => store.log(id, entry),
+        requestCancel: (ownerId, id) => store.requestCancel(ownerId, id),
+        finish: async (id, status, result) => {
+          if (++attempts === 1)
+            throw new Prisma.PrismaClientKnownRequestError("write conflict", {
+              code: "P2034",
+              clientVersion: "7.10.1",
+            });
+          return store.finish(id, status, result);
+        },
+      },
+      {
+        run: async () => engineResult({ text: "keep" }),
+        registry: () => new NodeRegistryV2(),
+      },
+      { totalTimeoutMs: 1000, nodeTimeoutMs: 1000 },
+    );
+    await coordinator.execute(run.id);
+    const saved = await db.prisma.workflowRun.findUniqueOrThrow({
+      where: { id: run.id },
+    });
+    expect(saved.status).toBe("SUCCEEDED");
+    expect(saved.output).toEqual({ text: "keep" });
+    expect(attempts).toBe(2);
+    expect(
+      await db.prisma.runEvent.count({
+        where: { runId: run.id, type: "run.succeeded" },
+      }),
+    ).toBe(1);
+  });
+
+  it("propagates repeated terminal conflicts for startup recovery without misclassifying output", async () => {
+    const { run } = await createRun("persistent-conflict");
+    let attempts = 0;
+    const coordinator = new RunCoordinator(
+      {
+        load: (id) => store.load(id),
+        start: (id) => store.start(id),
+        log: (id, entry) => store.log(id, entry),
+        requestCancel: (ownerId, id) => store.requestCancel(ownerId, id),
+        finish: async () => {
+          attempts++;
+          throw new Prisma.PrismaClientKnownRequestError("write conflict", {
+            code: "P2034",
+            clientVersion: "7.10.1",
+          });
+        },
+      },
+      {
+        run: async () => engineResult({ text: "valid" }),
+        registry: () => new NodeRegistryV2(),
+      },
+      { totalTimeoutMs: 1000, nodeTimeoutMs: 1000 },
+    );
+    await expect(coordinator.execute(run.id)).rejects.toMatchObject({
+      code: "P2034",
+    });
+    expect(attempts).toBe(3);
+    expect(
+      (await db.prisma.workflowRun.findUniqueOrThrow({ where: { id: run.id } }))
+        .status,
+    ).toBe("RUNNING");
+    expect(await store.recover([run.id])).toBe(1);
+    expect(
+      (await db.prisma.workflowRun.findUniqueOrThrow({ where: { id: run.id } }))
+        .status,
+    ).toBe("INTERRUPTED");
+    expect(
+      await db.prisma.runEvent.count({
+        where: { runId: run.id, type: "run.failed" },
+      }),
+    ).toBe(0);
+  });
+
+  it("lets cancellation win a successful terminal CAS without duplicating events", async () => {
+    const { owner, run } = await createRun("success-cas-cancel");
+    const coordinator = new RunCoordinator(
+      {
+        load: (id) => store.load(id),
+        start: (id) => store.start(id),
+        log: (id, entry) => store.log(id, entry),
+        requestCancel: (ownerId, id) => store.requestCancel(ownerId, id),
+        finish: async (id, status, result) => {
+          if (status === "SUCCEEDED") await store.requestCancel(owner.id, id);
+          return store.finish(id, status, result);
+        },
+      },
+      {
+        run: async () => engineResult({ text: "safe" }),
+        registry: () => new NodeRegistryV2(),
+      },
+      { totalTimeoutMs: 1000, nodeTimeoutMs: 1000 },
+    );
+    await coordinator.execute(run.id);
+    const saved = await db.prisma.workflowRun.findUniqueOrThrow({
+      where: { id: run.id },
+    });
+    expect(saved.status).toBe("CANCELLED");
+    expect(saved.output).toEqual({ text: "safe" });
+    expect(
+      await db.prisma.runEvent.count({
+        where: { runId: run.id, type: "run.cancelled" },
+      }),
+    ).toBe(1);
+    expect(
+      await db.prisma.runEvent.count({
+        where: { runId: run.id, type: "run.succeeded" },
+      }),
+    ).toBe(0);
   });
 
   it("enforces configured node count and rejects timer overflow", async () => {

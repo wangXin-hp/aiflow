@@ -49,7 +49,7 @@ describe("RunCoordinator", () => {
           id: runId,
           ownerId: runId,
           status: "QUEUED",
-          definitionSnapshot: { schemaVersion: 2, nodes: [], edges: [] },
+          definitionSnapshot: graph,
           input: {},
         }),
         start: async () => true,

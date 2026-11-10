@@ -1,6 +1,9 @@
 import { Inject, Injectable } from "@nestjs/common";
 import type { WorkflowLogEntryV2, RunResultV2 } from "@aiflow/workflow-engine";
+import { validateWorkflowV2 } from "@aiflow/workflow-engine";
+import { workflowV2Schema } from "@aiflow/contracts";
 import { ApiError } from "../common/api-error.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { RunAdaptersFactory } from "./run-adapters.factory.js";
 import { validateRunOutput } from "./run-output-validation.js";
 import {
@@ -82,9 +85,21 @@ export class RunCoordinator {
         return;
       }
       if (snapshot.status !== "QUEUED") return;
+      // 持久化 JSONB 是不可信边界；在领取前完成结构与图校验，避免损坏数据卡在 RUNNING。
+      const definitionValid =
+        workflowV2Schema.safeParse(snapshot.definitionSnapshot).success &&
+        validateWorkflowV2(snapshot.definitionSnapshot).valid;
       if (!(await this.store.start(runId))) {
         if (controller.signal.aborted)
           await this.store.finish(runId, "CANCELLED");
+        return;
+      }
+      if (!definitionValid) {
+        await this.finishWithCancellationFallback(
+          runId,
+          "FAILED",
+          this.failureResult(runId, "run_definition_invalid"),
+        );
         return;
       }
       if (
@@ -176,24 +191,42 @@ export class RunCoordinator {
         timedOut || logError || invalidOutput
           ? synthetic
           : (result ?? synthetic);
-      try {
-        await this.finishWithCancellationFallback(runId, terminal, finalResult);
-      } catch (error) {
-        if (
-          finalResult?.output === undefined &&
-          !finalResult?.nodes.some((node) => node.output !== undefined)
-        )
-          throw error;
-        // 输出写入被 JSONB 拒绝时事务已回滚；安全载荷重试保留终态与事件。
-        await this.finishWithCancellationFallback(
-          runId,
-          "FAILED",
-          this.failureResult(runId, "run_output_invalid"),
-        );
-      }
+      await this.persistTerminal(runId, terminal, finalResult);
     } finally {
       if (timeout) clearTimeout(timeout);
       this.active.delete(runId);
+    }
+  }
+
+  private async persistTerminal(
+    runId: string,
+    status: "SUCCEEDED" | "FAILED" | "CANCELLED",
+    result?: RunResultV2,
+  ): Promise<void> {
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await this.finishWithCancellationFallback(runId, status, result);
+        return;
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError) {
+          // 事务冲突保留已验证结果重试；不能伪装成业务输出错误。
+          if (error.code === "P2034" && attempt < 2) continue;
+          if (
+            error.code === "P2007" &&
+            (result?.output !== undefined ||
+              result?.nodes.some((node) => node.output !== undefined))
+          ) {
+            // JSONB 明确拒绝输出时，事务回滚后用无输出载荷收尾。
+            await this.finishWithCancellationFallback(
+              runId,
+              "FAILED",
+              this.failureResult(runId, "run_output_invalid"),
+            );
+            return;
+          }
+        }
+        throw error;
+      }
     }
   }
 
