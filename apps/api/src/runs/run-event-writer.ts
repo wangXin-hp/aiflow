@@ -12,6 +12,14 @@ import { PrismaService } from "../database/prisma.service.js";
 import { RunEventHub } from "./run-event-hub.js";
 import { sanitizeRunEventPayload } from "./run-event-sanitizer.js";
 
+const writableEventSchema = RunEventSchema.pick({
+  runId: true,
+  nodeId: true,
+  type: true,
+  level: true,
+  payload: true,
+});
+
 export interface AppendRunEventInput {
   runId: string;
   nodeId?: string | null;
@@ -42,7 +50,8 @@ export class RunEventWriter {
 
   /** 供创建运行的事务共用脱敏逻辑；调用方必须在事务提交后再通知。 */
   prepare(input: AppendRunEventInput): Prisma.RunEventUncheckedCreateInput {
-    return {
+    // 公开契约在写库前验证，避免提交后映射失败而留下无法重放的事件。
+    const event = writableEventSchema.parse({
       runId: input.runId,
       nodeId: input.nodeId ?? null,
       type: input.type,
@@ -50,7 +59,14 @@ export class RunEventWriter {
       payload: sanitizeRunEventPayload(
         input.payload,
         MAX_RUN_EVENT_PAYLOAD_BYTES,
-      ) as Prisma.InputJsonValue,
+      ),
+    });
+    return {
+      runId: event.runId,
+      nodeId: event.nodeId ?? null,
+      type: event.type,
+      level: event.level,
+      payload: event.payload as Prisma.InputJsonValue,
     };
   }
 

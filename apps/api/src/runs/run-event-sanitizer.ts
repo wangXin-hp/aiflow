@@ -77,8 +77,18 @@ export function sanitizeRunEventPayload(
   maxBytes: number = MAX_RUN_EVENT_PAYLOAD_BYTES,
 ): JsonValue {
   const limit = Math.min(maxBytes, MAX_RUN_EVENT_PAYLOAD_BYTES);
-  if (!Number.isInteger(limit) || limit < 2)
+  // 小于标记所需字节数时无法明确表示截断，拒绝含糊的预算。
+  if (!Number.isInteger(limit) || limit < byteLength({ truncated: true }))
     throw new RangeError("Invalid event payload byte limit");
+  try {
+    return sanitizeWithinLimit(value, limit);
+  } catch {
+    // 恶意 Proxy 的反射 trap 或已撤销对象不可遍历；无需冒险读取业务内容。
+    return { truncated: true };
+  }
+}
+
+function sanitizeWithinLimit(value: unknown, limit: number): JsonValue {
   let removed = inspect(value);
   const projected: Record<string, unknown> = {};
   if (value && typeof value === "object" && !Array.isArray(value)) {
@@ -91,7 +101,13 @@ export function sanitizeRunEventPayload(
     if (projected.elapsedMs === undefined) {
       const duration = Object.getOwnPropertyDescriptor(value, "durationMs");
       if (duration && "value" in duration && duration.enumerable)
-        projected.elapsedMs = duration.value;
+        // 引擎使用 performance.now()，持久化毫秒采用向下取整。
+        projected.elapsedMs =
+          typeof duration.value === "number" &&
+          Number.isFinite(duration.value) &&
+          duration.value >= 0
+            ? Math.floor(duration.value)
+            : duration.value;
     }
   } else removed = true;
   const parsed = SafeRunEventPayloadSchema.safeParse(projected);
@@ -116,7 +132,6 @@ export function sanitizeRunEventPayload(
     delete projected[key];
     projected.truncated = true;
   }
-  if (byteLength(projected) > limit)
-    return limit >= byteLength({ truncated: true }) ? { truncated: true } : {};
+  if (byteLength(projected) > limit) return { truncated: true };
   return SafeRunEventPayloadSchema.parse(projected);
 }

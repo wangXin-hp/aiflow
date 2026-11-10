@@ -63,6 +63,20 @@ describe("RunEventWriter", () => {
     expect(notify).not.toHaveBeenCalled();
   });
 
+  it("rejects invalid envelopes before any database write or notification", async () => {
+    const hub = new RunEventHub();
+    const notify = vi.spyOn(hub, "notify");
+    const create = vi.fn();
+    const writer = new RunEventWriter(
+      { runEvent: { create } } as unknown as PrismaService,
+      hub,
+    );
+    await expect(writer.append({ ...base, type: "" })).rejects.toThrow();
+    expect(() => writer.prepare({ ...base, type: "" })).toThrow();
+    expect(create).not.toHaveBeenCalled();
+    expect(notify).not.toHaveBeenCalled();
+  });
+
   it("only broadcasts to subscribers for the persisted run", async () => {
     const hub = new RunEventHub();
     const observed: string[] = [];
