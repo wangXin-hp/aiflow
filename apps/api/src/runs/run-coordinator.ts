@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 import type { WorkflowLogEntryV2, RunResultV2 } from "@aiflow/workflow-engine";
 import { ApiError } from "../common/api-error.js";
 import { RunAdaptersFactory } from "./run-adapters.factory.js";
+import { validateRunOutput } from "./run-output-validation.js";
 import {
   RUN_EXECUTION_STORE,
   type RunExecutionStore,
@@ -12,30 +13,8 @@ export interface RunExecutionConfig {
   totalTimeoutMs: number;
   nodeTimeoutMs: number;
   maxConcurrent?: number;
+  maxNodes?: number;
 }
-const maxStoredOutputBytes = 2 * 1024 * 1024;
-
-function outputIsBounded(result: RunResultV2 | undefined): boolean {
-  try {
-    for (const value of [
-      result?.output,
-      ...(result?.nodes.map((node) => node.output) ?? []),
-    ]) {
-      if (value === undefined) continue;
-      const serialized = JSON.stringify(value);
-      if (
-        !serialized ||
-        serialized.includes("\\u0000") ||
-        new TextEncoder().encode(serialized).byteLength > maxStoredOutputBytes
-      )
-        return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** 单实例内每个运行持有一个取消信号；数据库仍是状态和事件的唯一真相源。 */
 @Injectable()
 export class RunCoordinator {
@@ -97,10 +76,25 @@ export class RunCoordinator {
     let logError: unknown;
     try {
       const snapshot = await this.store.load(runId);
-      if (!snapshot || snapshot.status !== "QUEUED") return;
+      if (!snapshot) return;
+      if (snapshot.status === "CANCELLING") {
+        await this.store.finish(runId, "CANCELLED");
+        return;
+      }
+      if (snapshot.status !== "QUEUED") return;
       if (!(await this.store.start(runId))) {
         if (controller.signal.aborted)
           await this.store.finish(runId, "CANCELLED");
+        return;
+      }
+      if (
+        snapshot.definitionSnapshot.nodes.length > (this.config.maxNodes ?? 100)
+      ) {
+        await this.finishWithCancellationFallback(
+          runId,
+          "FAILED",
+          this.failureResult(runId, "run_node_limit_exceeded"),
+        );
         return;
       }
       // 外部适配器可能忽略 AbortSignal；截止 Promise 保证总超时仍能落库。
@@ -141,9 +135,10 @@ export class RunCoordinator {
       acceptingLogs = false;
       await pending;
       if (logError) failure ??= logError;
-      const oversized = !outputIsBounded(result);
+      const outputValidation = validateRunOutput(result);
+      const invalidOutput = outputValidation !== "valid";
       const terminal =
-        timedOut || logError || oversized
+        timedOut || logError || invalidOutput
           ? "FAILED"
           : failure
             ? controller.signal.aborted
@@ -154,8 +149,8 @@ export class RunCoordinator {
               : result?.status === "failed"
                 ? "FAILED"
                 : "SUCCEEDED";
-      const synthetic =
-        failure || logError || timedOut || oversized
+      const synthetic: RunResultV2 | undefined =
+        failure || logError || timedOut || invalidOutput
           ? {
               runId,
               status: "failed" as const,
@@ -168,25 +163,64 @@ export class RunCoordinator {
                   ? "run_timeout"
                   : logError
                     ? "event_persistence_failed"
-                    : oversized
-                      ? "run_output_too_large"
+                    : invalidOutput
+                      ? outputValidation === "too_large"
+                        ? "run_output_too_large"
+                        : "run_output_invalid"
                       : "run_execution_failed",
                 message: "Run execution failed",
               },
             }
           : undefined;
       const finalResult =
-        timedOut || logError || oversized ? synthetic : (result ?? synthetic);
-      if (
-        !(await this.store.finish(runId, terminal, finalResult)) &&
-        terminal !== "CANCELLED"
-      ) {
-        // 取消若先把状态改成 CANCELLING，自然完成不得覆盖取消终态。
-        await this.store.finish(runId, "CANCELLED", result);
+        timedOut || logError || invalidOutput
+          ? synthetic
+          : (result ?? synthetic);
+      try {
+        await this.finishWithCancellationFallback(runId, terminal, finalResult);
+      } catch (error) {
+        if (
+          finalResult?.output === undefined &&
+          !finalResult?.nodes.some((node) => node.output !== undefined)
+        )
+          throw error;
+        // 输出写入被 JSONB 拒绝时事务已回滚；安全载荷重试保留终态与事件。
+        await this.finishWithCancellationFallback(
+          runId,
+          "FAILED",
+          this.failureResult(runId, "run_output_invalid"),
+        );
       }
     } finally {
       if (timeout) clearTimeout(timeout);
       this.active.delete(runId);
     }
+  }
+
+  private async finishWithCancellationFallback(
+    runId: string,
+    status: "SUCCEEDED" | "FAILED" | "CANCELLED",
+    result?: RunResultV2,
+  ): Promise<void> {
+    if (
+      !(await this.store.finish(runId, status, result)) &&
+      status !== "CANCELLED"
+    ) {
+      // 取消赢得状态竞争后，仍使用已经校验的同一载荷。
+      await this.store.finish(runId, "CANCELLED", result);
+    }
+  }
+
+  private failureResult(runId: string, code: string): RunResultV2 {
+    const now = new Date().toISOString();
+    return {
+      runId,
+      status: "failed",
+      startedAt: now,
+      finishedAt: now,
+      nodes: [],
+      logs: [],
+      error: { code, message: "Run execution failed" },
+    };
   }
 }

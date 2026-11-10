@@ -37,3 +37,10 @@ export function canTransitionNode(
 ): boolean {
   return nodeTransitions[from].includes(to);
 }
+
+/** 仓储条件更新从同一迁移表推导来源，避免纯规则与 SQL 写入规则分叉。 */
+export function nodeTransitionSources(to: NodeRunStatus): NodeRunStatus[] {
+  return (Object.keys(nodeTransitions) as NodeRunStatus[]).filter((from) =>
+    canTransitionNode(from, to),
+  );
+}

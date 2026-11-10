@@ -94,7 +94,9 @@ describe("RunService (real PostgreSQL)", () => {
     await expect(
       runs.createDebugRun(owner.id, workflow.id, { input: { prompt: null } }),
     ).rejects.toMatchObject({ status: 400 });
-    expect(await db.prisma.workflowRun.count()).toBe(0);
+    expect(
+      await db.prisma.workflowRun.count({ where: { ownerId: owner.id } }),
+    ).toBe(0);
     expect(notify).not.toHaveBeenCalled();
     await workflows.archive(owner.id, workflow.id);
     await expect(

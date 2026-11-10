@@ -1,9 +1,14 @@
 import { Inject, Injectable } from "@nestjs/common";
-import { Prisma, type WorkflowRunStatus } from "../generated/prisma/client.js";
+import {
+  Prisma,
+  type NodeRunStatus,
+  type WorkflowRunStatus,
+} from "../generated/prisma/client.js";
 import type { JsonObject, WorkflowV2 } from "@aiflow/contracts";
 import type { RunResultV2, WorkflowLogEntryV2 } from "@aiflow/workflow-engine";
 import { PrismaService } from "../database/prisma.service.js";
 import { RunEventWriter } from "./run-event-writer.js";
+import { nodeTransitionSources } from "./run-state-machine.js";
 
 export const RUN_EXECUTION_STORE = Symbol("RUN_EXECUTION_STORE");
 export interface ExecutionSnapshot {
@@ -50,15 +55,31 @@ export class PrismaRunExecutionStore implements RunExecutionStore {
   }
 
   async start(id: string): Promise<boolean> {
-    const changed = await this.prisma.workflowRun.updateMany({
-      where: { id, status: "QUEUED" },
-      data: { status: "RUNNING", startedAt: new Date() },
+    let committed = false;
+    await this.prisma.$transaction(async (tx) => {
+      const startedAt = new Date();
+      const changed = await tx.workflowRun.updateMany({
+        where: { id, status: "QUEUED" },
+        data: { status: "RUNNING", startedAt },
+      });
+      if (!changed.count) return;
+      await tx.runEvent.create({
+        data: this.events.prepare({
+          runId: id,
+          type: "run.started",
+          level: "info",
+          payload: { status: "RUNNING", startedAt: startedAt.toISOString() },
+        }),
+      });
+      committed = true;
     });
-    return changed.count === 1;
+    if (committed) this.events.notifyCommitted(id);
+    return committed;
   }
 
   async log(id: string, entry: WorkflowLogEntryV2): Promise<void> {
-    if (entry.code.startsWith("run.") && entry.code !== "run.started") return;
+    // 开始事件已在领取事务中提交；引擎重复回调不能再插入一条。
+    if (entry.code.startsWith("run.")) return;
     let committed = false;
     await this.prisma.$transaction(async (tx) => {
       const run = await tx.workflowRun.findUnique({
@@ -67,23 +88,20 @@ export class PrismaRunExecutionStore implements RunExecutionStore {
       });
       if (!run || !activeStatuses.includes(run.status)) return;
       if (entry.nodeId) {
-        const target =
-          entry.code === "node.started"
-            ? "RUNNING"
-            : entry.code === "node.succeeded"
-              ? "SUCCEEDED"
-              : entry.code === "node.failed"
-                ? "FAILED"
-                : entry.code === "node.cancelled"
-                  ? "CANCELLED"
-                  : "SKIPPED";
-        const source =
-          target === "RUNNING" ? (["PENDING"] as const) : activeNodeStatuses;
+        const targetByCode: Record<string, NodeRunStatus> = {
+          "node.started": "RUNNING",
+          "node.succeeded": "SUCCEEDED",
+          "node.failed": "FAILED",
+          "node.cancelled": "CANCELLED",
+          "node.skipped": "SKIPPED",
+        };
+        const target = targetByCode[entry.code];
+        if (!target) return;
         const changed = await tx.nodeRun.updateMany({
           where: {
             runId: id,
             nodeId: entry.nodeId,
-            status: { in: [...source] },
+            status: { in: nodeTransitionSources(target) },
           },
           data: {
             status: target,

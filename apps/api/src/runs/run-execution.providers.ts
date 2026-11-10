@@ -21,6 +21,7 @@ export const runExecutionProviders: Provider[] = [
       totalTimeoutMs: config.get("RUN_TOTAL_TIMEOUT_MS", { infer: true }),
       nodeTimeoutMs: config.get("RUN_NODE_TIMEOUT_MS", { infer: true }),
       maxConcurrent: config.get("RUN_MAX_CONCURRENT", { infer: true }),
+      maxNodes: config.get("RUN_MAX_NODES", { infer: true }),
     }),
   },
   RunCoordinator,

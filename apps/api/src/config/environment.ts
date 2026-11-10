@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 const positiveInteger = z.coerce.number().int().positive();
+const timerDelay = positiveInteger.max(2_147_483_647);
 const port = positiveInteger.max(65535);
 const httpUrl = z.url({ protocol: /^https?$/ });
 const optionalText = z.preprocess(
@@ -57,8 +58,9 @@ export const EnvironmentSchema = z
     ARK_MODEL_ID: optionalText,
     ARK_EMBEDDING_MODEL_ID: optionalText,
     ARK_BASE_URL: httpUrl.default("https://ark.cn-beijing.volces.com/api/v3"),
-    RUN_NODE_TIMEOUT_MS: positiveInteger.default(30000),
-    RUN_TOTAL_TIMEOUT_MS: positiveInteger.default(300000),
+    // Node.js 单次 setTimeout 上限；溢出会退化为近乎立即超时。
+    RUN_NODE_TIMEOUT_MS: timerDelay.default(30000),
+    RUN_TOTAL_TIMEOUT_MS: timerDelay.default(300000),
     RUN_MAX_NODES: positiveInteger.default(100),
     RUN_MAX_CONCURRENT: positiveInteger.default(4),
     RUN_EVENT_MAX_BYTES: positiveInteger.default(65536),
