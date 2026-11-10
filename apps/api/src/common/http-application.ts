@@ -10,8 +10,6 @@ export function configureHttpApplication(app: INestApplication): void {
   const origin = new URL(configuration.get("WEB_PUBLIC_URL", { infer: true }))
     .origin;
   app.setGlobalPrefix("api");
-  // V2 图可包含大量节点与 JSON 字面量；2 MiB 接受实际草稿，同时限制单次解析资源。
-  (app as NestExpressApplication).useBodyParser("json", { limit: "2mb" });
   app.use(cookieParser());
   app.enableCors({
     credentials: true,
@@ -20,4 +18,6 @@ export function configureHttpApplication(app: INestApplication): void {
       callback: (error: Error | null, allow: boolean) => void,
     ) => callback(null, requestOrigin === origin),
   });
+  // CORS 必须先于解析器；可信前端才能读取固定的 400/413 错误。2 MiB 限制单次图解析资源。
+  (app as NestExpressApplication).useBodyParser("json", { limit: "2mb" });
 }

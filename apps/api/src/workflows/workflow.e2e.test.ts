@@ -270,6 +270,18 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
       code: "PAYLOAD_TOO_LARGE",
       message: "请求内容过大",
     });
+    expect(rejected.headers["access-control-allow-origin"]).toBe(origin);
+    expect(rejected.headers["access-control-allow-credentials"]).toBe("true");
+    const malformed = await request(app.getHttpServer())
+      .post("/api/workflows")
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .set("Content-Type", "application/json")
+      .send('{"broken"');
+    expect(malformed.status).toBe(400);
+    expect(malformed.body.code).toBe("BAD_REQUEST");
+    expect(malformed.headers["access-control-allow-origin"]).toBe(origin);
+    expect(malformed.headers["access-control-allow-credentials"]).toBe("true");
     expect(await database.prisma.workflow.count({ where: { ownerId } })).toBe(
       before + 1,
     );
