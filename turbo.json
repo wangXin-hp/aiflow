@@ -41,12 +41,14 @@
         "SMTP_FROM",
         "ARK_API_KEY",
         "ARK_MODEL_ID",
+        "ARK_EMBEDDING_MODEL_ID",
         "ARK_BASE_URL",
         "RUN_NODE_TIMEOUT_MS",
         "RUN_TOTAL_TIMEOUT_MS",
         "RUN_MAX_NODES",
         "RUN_MAX_CONCURRENT",
-        "RUN_EVENT_MAX_BYTES"
+        "RUN_EVENT_MAX_BYTES",
+        "RUN_HTTP_ALLOWED_HOSTS"
       ]
     }
   }

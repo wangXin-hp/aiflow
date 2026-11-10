@@ -55,12 +55,14 @@ export const EnvironmentSchema = z
     SMTP_FROM: optionalText,
     ARK_API_KEY: optionalSecret,
     ARK_MODEL_ID: optionalText,
+    ARK_EMBEDDING_MODEL_ID: optionalText,
     ARK_BASE_URL: httpUrl.default("https://ark.cn-beijing.volces.com/api/v3"),
     RUN_NODE_TIMEOUT_MS: positiveInteger.default(30000),
     RUN_TOTAL_TIMEOUT_MS: positiveInteger.default(300000),
     RUN_MAX_NODES: positiveInteger.default(100),
     RUN_MAX_CONCURRENT: positiveInteger.default(4),
     RUN_EVENT_MAX_BYTES: positiveInteger.default(65536),
+    RUN_HTTP_ALLOWED_HOSTS: z.string().default(""),
   })
   .superRefine((environment, context) => {
     // 生产环境禁止把验证码写入日志，防止误用本地开发邮件通道。
