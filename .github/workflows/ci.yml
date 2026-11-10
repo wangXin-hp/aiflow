@@ -26,7 +26,7 @@ jobs:
           node-version: 24.9.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # 认证 E2E 使用独立测试库；生成客户端后应用迁移，不连接外部邮件服务。
+      # 认证与工作流集成测试共用独立测试库；生成客户端后先部署全部迁移。
       - run: pnpm db:generate
       - run: pnpm db:deploy
       - run: pnpm format:check
