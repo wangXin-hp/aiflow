@@ -1,6 +1,6 @@
 # AIFlow
 
-个人 AI 工作流平台，当前处于工程初始化阶段。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供 React 登录、注册、邮箱验证与受保护的个人主页、API 健康检查、PostgreSQL 用户持久化与邮箱认证 API，以及独立的工作流协议与支持转换、条件分支的内存执行引擎；工作流 API、画布与模型尚未实现。
+个人 AI 工作流平台。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供 React 登录、注册、邮箱验证与受保护的个人主页，NestJS 认证和工作流 CRUD API、PostgreSQL 持久化，以及独立的工作流协议与执行引擎；画布和运行持久化仍在后续开发阶段。
 
 ## 环境与运行
 
@@ -64,6 +64,10 @@ pnpm build
 匿名接口为 `POST /api/auth/register`、`GET /api/auth/verify?token=...`、`POST /api/auth/verification/resend`、`POST /api/auth/login` 和幂等的 `POST /api/auth/logout`；`GET /api/auth/me` 要求已验证会话。请求字段由共享契约约束：注册接受 `email`、`password`、可选 `name`，登录接受 `email`、`password`，重发仅接受 `email`。认证成功返回 `{ success: true, data, message? }`，错误返回 `{ code, message, details? }`，健康检查保持原有 `{ status, service }`。
 
 登录仅通过 `aiflow_session` Cookie 返回会话，响应 JSON 不含 token。Cookie 使用 HttpOnly、SameSite=Lax、Path=/、7 天有效期，生产环境启用 Secure；退出无需有效会话也会清除相同作用域的 Cookie。浏览器请求需携带 credentials，CORS 仅允许 `WEB_PUBLIC_URL` 的同源地址。非 GET/HEAD/OPTIONS 请求只要显式携带 Origin 就必须与该地址精确匹配；携带会话 Cookie 时还必须提供可信 Origin。无 Cookie、无 Origin 的匿名接口仍可由 CLI 等非浏览器客户端调用。登录和重发同时按来源 IP、规范化邮箱分别限流，超限统一返回 429。两种计数均只保存在当前进程，重启会清空，多实例部署需要共享存储。
+
+## 工作流 API
+
+已登录用户可通过 `POST/GET /api/workflows` 与 `GET/PATCH/DELETE /api/workflows/:id` 创建、分页查看、修改和软归档自己的草稿。修改必须提交当前 `revision`，过期版本返回 409；其他用户的 ID 与未知 ID 均返回 404。`DELETE` 对自己的已归档工作流返回幂等 204。请求体须为 JSON，单次 HTTP 请求体上限为 2 MiB；超限返回固定的 `413 PAYLOAD_TOO_LARGE`，避免大图在解析阶段变成内部错误。
 
 ## 代码质量与提交
 

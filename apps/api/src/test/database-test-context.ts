@@ -65,6 +65,8 @@ export function createDatabaseTestContext(databaseUrlOverride?: string) {
   }
 
   return {
+    /** HTTP E2E 与测试仓储必须连接同一条已预检的测试库 URL。 */
+    databaseUrl,
     get prisma(): PrismaService {
       return requireVerifiedPrisma();
     },

@@ -55,6 +55,17 @@ export class ApiExceptionFilter implements ExceptionFilter {
       status = error.getStatus();
       const known = httpErrors[status];
       if (known) body = { code: known[0], message: known[1] };
+    } else if (
+      typeof error === "object" &&
+      error !== null &&
+      "type" in error &&
+      error.type === "entity.too.large" &&
+      "status" in error &&
+      error.status === 413
+    ) {
+      // 只识别 body-parser 的固定错误类型，避免把原始请求或解析器异常内容回显。
+      status = 413;
+      body = { code: "PAYLOAD_TOO_LARGE", message: "请求内容过大" };
     }
     host.switchToHttp().getResponse<Response>().status(status).json(body);
   }

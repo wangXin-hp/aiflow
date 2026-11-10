@@ -6,7 +6,11 @@ import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { WorkflowResponseSchema, type WorkflowV2 } from "@aiflow/contracts";
+import {
+  WorkflowListResponseSchema,
+  WorkflowResponseSchema,
+  type WorkflowV2,
+} from "@aiflow/contracts";
 import { configureHttpApplication } from "../common/http-application.js";
 import { loadEnvironment, type Environment } from "../config/environment.js";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
@@ -42,6 +46,7 @@ const invalidGraph: WorkflowV2 = {
 describe("workflow HTTP boundary (real PostgreSQL)", () => {
   const database = createDatabaseTestContext();
   let app: INestApplication;
+  let connected = false;
   let ownerId: string;
   let otherId: string;
   let ownerCookie: string;
@@ -49,13 +54,12 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
 
   beforeAll(async () => {
     await database.connect();
+    connected = true;
     const { AppModule } = await import("../app.module.js");
     const configuration = new ConfigService<Environment, true>(
       loadEnvironment({
         NODE_ENV: "test",
-        DATABASE_URL:
-          process.env.TEST_DATABASE_URL ??
-          "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow_test",
+        DATABASE_URL: database.databaseUrl,
         JWT_SECRET: secret,
         WEB_PUBLIC_URL: origin,
       }),
@@ -76,7 +80,7 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
 
   afterAll(async () => {
     try {
-      await database.cleanup();
+      if (connected) await database.cleanup();
     } finally {
       await app?.close();
       await database.close();
@@ -94,8 +98,11 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
         .patch(`/api/workflows/${randomUUID()}`)
         .send({ revision: 1, name: "x" }),
       request(app.getHttpServer()).delete(`/api/workflows/${randomUUID()}`),
-    ])
-      expect((await result).body).toMatchObject({ code: "UNAUTHORIZED" });
+    ]) {
+      const response = await result;
+      expect(response.status).toBe(401);
+      expect(response.body).toMatchObject({ code: "UNAUTHORIZED" });
+    }
   });
 
   it("creates, lists and reads only public workflow fields", async () => {
@@ -122,6 +129,9 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
       .get("/api/workflows?limit=20")
       .set("Cookie", ownerCookie);
     expect(listed.status).toBe(200);
+    expect(WorkflowListResponseSchema.safeParse(listed.body.data).success).toBe(
+      true,
+    );
     expect(
       listed.body.data.items.map((item: { id: string }) => item.id),
     ).toContain(created.body.data.id);
@@ -140,10 +150,14 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
       .set("Origin", origin)
       .send({ name: "bad", definition: invalidGraph });
     expect(graph.status).toBe(400);
-    expect(graph.body).toMatchObject({
-      code: "WORKFLOW_GRAPH_INVALID",
-      details: expect.any(Array),
-    });
+    expect(graph.body.code).toBe("WORKFLOW_GRAPH_INVALID");
+    expect(graph.body.details).toEqual(
+      expect.arrayContaining([
+        { code: expect.any(String), message: expect.any(String) },
+      ]),
+    );
+    for (const detail of graph.body.details)
+      expect(Object.keys(detail).sort()).toEqual(["code", "message"]);
     expect(await database.prisma.workflow.count({ where: { ownerId } })).toBe(
       before,
     );
@@ -203,6 +217,7 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
       const cross = await run(id);
       const missing = await run(unknown);
       expect(cross.status).toBe(404);
+      expect(missing.status).toBe(404);
       expect(cross.body).toEqual(missing.body);
       expect(cross.body.code).toBe("WORKFLOW_NOT_FOUND");
     }
@@ -218,5 +233,45 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
       .set("Cookie", ownerCookie);
     expect(hidden.status).toBe(404);
     expect(hidden.body.code).toBe("WORKFLOW_NOT_FOUND");
+  });
+
+  it("accepts valid graphs above the framework default and rejects oversized JSON safely", async () => {
+    const before = await database.prisma.workflow.count({ where: { ownerId } });
+    const withLiteral = (size: number): WorkflowV2 => ({
+      ...definition,
+      nodes: [
+        definition.nodes[0]!,
+        {
+          id: "end",
+          type: "end",
+          position: { x: 240, y: 0 },
+          config: {
+            values: { content: { kind: "literal", value: "x".repeat(size) } },
+          },
+        },
+      ],
+    });
+    const accepted = await request(app.getHttpServer())
+      .post("/api/workflows")
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ name: "large graph", definition: withLiteral(104_000) });
+    expect(accepted.status).toBe(201);
+    expect(WorkflowResponseSchema.safeParse(accepted.body.data).success).toBe(
+      true,
+    );
+    const rejected = await request(app.getHttpServer())
+      .post("/api/workflows")
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ name: "oversized", definition: withLiteral(2_100_000) });
+    expect(rejected.status).toBe(413);
+    expect(rejected.body).toEqual({
+      code: "PAYLOAD_TOO_LARGE",
+      message: "请求内容过大",
+    });
+    expect(await database.prisma.workflow.count({ where: { ownerId } })).toBe(
+      before + 1,
+    );
   });
 });
