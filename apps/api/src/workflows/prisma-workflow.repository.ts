@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type Workflow } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type {
@@ -22,7 +22,7 @@ function asJson(
 /** Prisma 适配器集中实现 owner、归档与稳定游标条件，服务层不拼数据库查询。 */
 @Injectable()
 export class PrismaWorkflowRepository implements WorkflowRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   async create(input: CreateWorkflowRecord): Promise<WorkflowRecord> {
     return asRecord(
