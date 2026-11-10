@@ -142,6 +142,7 @@ model WorkflowRun {
   startedAt          DateTime?
   finishedAt         DateTime?
   owner              User              @relation(fields: [ownerId], references: [id], onDelete: Restrict)
+  // 复合外键保证工作流与运行属于同一用户，所选版本属于该工作流。
   workflow           Workflow          @relation(fields: [workflowId, ownerId], references: [id, ownerId], onDelete: Restrict)
   workflowVersion    WorkflowVersion?  @relation(fields: [workflowVersionId, workflowId], references: [id, workflowId], onDelete: Restrict)
   nodes              NodeRun[]
@@ -167,6 +168,7 @@ model NodeRun {
   elapsedMs    Int?
   run          WorkflowRun   @relation(fields: [runId], references: [id], onDelete: Restrict)
 
+  // 首期 DAG 无环，每次运行中同一节点最多执行一次。
   @@unique([runId, nodeId])
   @@index([runId, status])
 }
