@@ -112,6 +112,11 @@ export function createDatabaseTestContext(databaseUrlOverride?: string) {
       if (ids.length === 0) return;
       // RESTRICT 外键要求从叶子向所有者删除；每个条件都限定为本 helper 追踪的 owner。
       await prisma.$transaction([
+        prisma.runEvent.deleteMany({
+          where: { run: { ownerId: { in: ids } } },
+        }),
+        prisma.nodeRun.deleteMany({ where: { run: { ownerId: { in: ids } } } }),
+        prisma.workflowRun.deleteMany({ where: { ownerId: { in: ids } } }),
         prisma.workflowVersion.deleteMany({
           where: { workflow: { ownerId: { in: ids } } },
         }),
