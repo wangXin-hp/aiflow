@@ -1,13 +1,5 @@
 import { randomUUID } from "node:crypto";
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import type { WorkflowV2 } from "@aiflow/contracts";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
 import { PrismaWorkflowRepository } from "./prisma-workflow.repository.js";
@@ -49,6 +41,15 @@ const invalidGraph: WorkflowV2 = {
   edges: [],
 };
 
+const alternateDefinition: WorkflowV2 = {
+  ...validDefinition,
+  nodes: validDefinition.nodes.map((node) =>
+    node.id === "end"
+      ? { ...node, position: { x: 480, y: 120 } }
+      : structuredClone(node),
+  ),
+};
+
 async function rejection(operation: Promise<unknown>) {
   try {
     await operation;
@@ -60,13 +61,13 @@ async function rejection(operation: Promise<unknown>) {
 
 describe("workflow persistence (real PostgreSQL)", () => {
   const database = createDatabaseTestContext();
+  let repository: PrismaWorkflowRepository;
   let service: WorkflowService;
 
   beforeAll(async () => {
     await database.connect();
-    service = new WorkflowService(
-      new PrismaWorkflowRepository(database.prisma),
-    );
+    repository = new PrismaWorkflowRepository(database.prisma);
+    service = new WorkflowService(repository);
   });
 
   afterEach(async () => {
@@ -78,17 +79,19 @@ describe("workflow persistence (real PostgreSQL)", () => {
   });
 
   it("refuses a non-test database before creating a client", () => {
-    vi.stubEnv(
-      "TEST_DATABASE_URL",
-      "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow",
-    );
-    try {
-      expect(() => createDatabaseTestContext()).toThrow(
-        /database ending in _test/u,
-      );
-    } finally {
-      vi.unstubAllEnvs();
-    }
+    expect(() =>
+      createDatabaseTestContext(
+        "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow",
+      ),
+    ).toThrow(/database ending in _test/u);
+  });
+
+  it.each([
+    "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow%00application_name%00_test",
+    "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow_test?application_name=fixture%00database%00aiflow",
+    "postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow_test?application_name=fixture\0database\0aiflow",
+  ])("rejects NUL-smuggled database URLs before connecting: %s", (url) => {
+    expect(() => createDatabaseTestContext(url)).toThrow(/NUL/u);
   });
 
   it("keeps unknown and cross-owner resources indistinguishable", async () => {
@@ -138,22 +141,27 @@ describe("workflow persistence (real PostgreSQL)", () => {
       name: "current",
     });
 
-    await expect(
-      service.update(owner.id, workflow.id, {
-        revision: 1,
-        name: "stale",
-        description: "must not persist",
-        definition: validDefinition,
-      }),
-    ).rejects.toMatchObject({
-      status: 409,
-      code: "WORKFLOW_REVISION_CONFLICT",
+    const afterSuccess = await database.prisma.workflow.findUniqueOrThrow({
+      where: { id: workflow.id },
     });
+    await expect(
+      repository.updateActiveAtRevision({
+        id: workflow.id,
+        ownerId: owner.id,
+        revision: 1,
+        changes: {
+          name: "stale",
+          description: "must not persist",
+          definition: alternateDefinition,
+        },
+      }),
+    ).resolves.toBeNull();
     await expect(
       database.prisma.workflow.findUniqueOrThrow({
         where: { id: workflow.id },
       }),
-    ).resolves.toMatchObject({
+    ).resolves.toEqual(afterSuccess);
+    expect(afterSuccess).toMatchObject({
       name: "current",
       description: "initial description",
       definition: validDefinition,
@@ -165,7 +173,7 @@ describe("workflow persistence (real PostgreSQL)", () => {
     const owner = await database.createUser("page-owner");
     const other = await database.createUser("page-other");
     const workflows = await Promise.all(
-      ["A", "B", "C", "D"].map((name) =>
+      ["A", "B", "C", "D", "E"].map((name) =>
         service.create(owner.id, { name, definition: validDefinition }),
       ),
     );
@@ -173,10 +181,15 @@ describe("workflow persistence (real PostgreSQL)", () => {
       name: "other tenant",
       definition: validDefinition,
     });
-    const sameTime = new Date("2026-11-09T03:00:00.000Z");
+    const latestTime = new Date("2026-11-09T03:00:00.000Z");
+    const earlierTime = new Date("2026-11-09T02:00:00.000Z");
     await database.prisma.workflow.updateMany({
-      where: { id: { in: workflows.map(({ id }) => id) } },
-      data: { createdAt: sameTime },
+      where: { id: { in: workflows.slice(0, 3).map(({ id }) => id) } },
+      data: { createdAt: latestTime },
+    });
+    await database.prisma.workflow.updateMany({
+      where: { id: { in: workflows.slice(3).map(({ id }) => id) } },
+      data: { createdAt: earlierTime },
     });
 
     const first = await service.list(owner.id, { limit: 2 });
@@ -184,15 +197,32 @@ describe("workflow persistence (real PostgreSQL)", () => {
       limit: 2,
       cursor: first.nextCursor,
     });
-    const ids = [...first.items, ...second.items].map(({ id }) => id);
-    expect(ids).toEqual(
-      workflows
+    const third = await service.list(owner.id, {
+      limit: 2,
+      cursor: second.nextCursor,
+    });
+    const ids = [...first.items, ...second.items, ...third.items].map(
+      ({ id }) => id,
+    );
+    expect(ids).toEqual([
+      ...workflows
+        .slice(0, 3)
         .map(({ id }) => id)
         .sort((left, right) => right.localeCompare(left)),
-    );
+      ...workflows
+        .slice(3)
+        .map(({ id }) => id)
+        .sort((left, right) => right.localeCompare(left)),
+    ]);
+    expect([
+      first.items.length,
+      second.items.length,
+      third.items.length,
+    ]).toEqual([2, 2, 1]);
     expect(new Set(ids).size).toBe(workflows.length);
     expect(first.nextCursor).not.toBeNull();
-    expect(second.nextCursor).toBeNull();
+    expect(second.nextCursor).not.toBeNull();
+    expect(third.nextCursor).toBeNull();
   });
 
   it("soft-archives idempotently and preserves the immutable version snapshot", async () => {
@@ -213,9 +243,18 @@ describe("workflow persistence (real PostgreSQL)", () => {
     await expect(
       service.archive(owner.id, workflow.id),
     ).resolves.toBeUndefined();
+    const firstArchive = await database.prisma.workflow.findUniqueOrThrow({
+      where: { id: workflow.id },
+    });
+    await new Promise((resolve) => setTimeout(resolve, 5));
     await expect(
       service.archive(owner.id, workflow.id),
     ).resolves.toBeUndefined();
+    await expect(
+      database.prisma.workflow.findUniqueOrThrow({
+        where: { id: workflow.id },
+      }),
+    ).resolves.toMatchObject({ archivedAt: firstArchive.archivedAt });
     await expect(service.get(owner.id, workflow.id)).rejects.toMatchObject({
       status: 404,
       code: "WORKFLOW_NOT_FOUND",
@@ -223,10 +262,19 @@ describe("workflow persistence (real PostgreSQL)", () => {
     await expect(
       service.update(owner.id, workflow.id, { revision: 1, name: "hidden" }),
     ).rejects.toMatchObject({ status: 404, code: "WORKFLOW_NOT_FOUND" });
+    const beforeForeignArchive =
+      await database.prisma.workflow.findUniqueOrThrow({
+        where: { id: workflow.id },
+      });
     await expect(service.archive(other.id, workflow.id)).rejects.toMatchObject({
       status: 404,
       code: "WORKFLOW_NOT_FOUND",
     });
+    await expect(
+      database.prisma.workflow.findUniqueOrThrow({
+        where: { id: workflow.id },
+      }),
+    ).resolves.toEqual(beforeForeignArchive);
     expect((await service.list(owner.id, {})).items).toEqual([]);
 
     await expect(
@@ -255,23 +303,36 @@ describe("workflow persistence (real PostgreSQL)", () => {
       await database.prisma.workflow.count({ where: { ownerId: owner.id } }),
     ).toBe(countBefore);
 
-    const valid = await service.create(owner.id, {
-      name: "valid",
-      definition: validDefinition,
-    });
-    await expect(
-      service.update(owner.id, valid.id, {
-        revision: 1,
-        name: "must not persist",
-        definition: invalidGraph,
-      }),
-    ).rejects.toMatchObject({
-      status: 400,
-      code: "WORKFLOW_GRAPH_INVALID",
-    });
-    await expect(
-      database.prisma.workflow.findUniqueOrThrow({ where: { id: valid.id } }),
-    ).resolves.toMatchObject({ name: "valid", revision: 1 });
+    for (const [label, definition] of [
+      ["semantic", invalidGraph],
+      ["structural", { schemaVersion: 2, nodes: "invalid", edges: [] }],
+    ] as const) {
+      const valid = await service.create(owner.id, {
+        name: `valid-${label}`,
+        description: "unchanged",
+        definition: validDefinition,
+      });
+      const beforeUpdate = await database.prisma.workflow.findUniqueOrThrow({
+        where: { id: valid.id },
+      });
+      const beforeUpdateCount = await database.prisma.workflow.count({
+        where: { ownerId: owner.id },
+      });
+      await expect(
+        service.update(owner.id, valid.id, {
+          revision: 1,
+          name: "must not persist",
+          description: "must not persist",
+          definition,
+        }),
+      ).rejects.toThrow();
+      await expect(
+        database.prisma.workflow.findUniqueOrThrow({ where: { id: valid.id } }),
+      ).resolves.toEqual(beforeUpdate);
+      expect(
+        await database.prisma.workflow.count({ where: { ownerId: owner.id } }),
+      ).toBe(beforeUpdateCount);
+    }
 
     const rolledBackId = randomUUID();
     await expect(
