@@ -33,6 +33,21 @@ function matchesType(value: unknown, expected: string): boolean {
   return typeof value === expected;
 }
 
+/** PostgreSQL JSONB 不接受 NUL；写库前检查键和值，避免把输入错误变成数据库 500。 */
+function containsNul(value: unknown): boolean {
+  const stack: unknown[] = [value];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (typeof current === "string" && current.includes("\0")) return true;
+    if (!current || typeof current !== "object") continue;
+    for (const [key, child] of Object.entries(current)) {
+      if (key.includes("\0")) return true;
+      stack.push(child);
+    }
+  }
+  return false;
+}
+
 /** 运行输入仅使用启动快照声明的字段，默认值先补齐再保存，执行与详情共享同一份值。 */
 function validateStartInput(graph: WorkflowV2, input: JsonObject): JsonObject {
   const start = graph.nodes.find((node) => node.type === "start");
@@ -40,9 +55,12 @@ function validateStartInput(graph: WorkflowV2, input: JsonObject): JsonObject {
   const names = new Set(fields.map((field) => field.name));
   if (Object.keys(input).some((key) => !names.has(key)))
     throw new ApiError(400, "RUN_INPUT_INVALID", "运行输入字段无效");
-  const normalized: JsonObject = { ...input };
+  const normalized: JsonObject = Object.assign(Object.create(null), input);
   for (const field of fields) {
-    const value = normalized[field.name] ?? field.defaultValue;
+    // null 是调用者显式提供的值，只有真正缺失的字段才能使用默认值。
+    const value = Object.hasOwn(normalized, field.name)
+      ? normalized[field.name]
+      : field.defaultValue;
     if (value === undefined) {
       if (field.required)
         throw new ApiError(400, "RUN_INPUT_INVALID", "运行输入缺少必填字段");
@@ -50,7 +68,12 @@ function validateStartInput(graph: WorkflowV2, input: JsonObject): JsonObject {
     }
     if (!matchesType(value, field.type))
       throw new ApiError(400, "RUN_INPUT_INVALID", "运行输入字段类型无效");
-    normalized[field.name] = value;
+    Object.defineProperty(normalized, field.name, {
+      value,
+      writable: true,
+      enumerable: true,
+      configurable: true,
+    });
   }
   return normalized;
 }
@@ -60,7 +83,7 @@ export class RunService {
   constructor(
     @Inject(WORKFLOW_REPOSITORY) private readonly workflows: WorkflowRepository,
     @Inject(RUN_REPOSITORY) private readonly runs: RunRepository,
-    private readonly events: RunEventWriter,
+    @Inject(RunEventWriter) private readonly events: RunEventWriter,
     @Inject(RUN_ENQUEUER) private readonly enqueuer: RunEnqueuer,
   ) {}
 
@@ -86,6 +109,22 @@ export class RunService {
       );
     }
     const input = validateStartInput(definition, request.input);
+    // 默认值可能让最终输入超出请求上限；必须在开启事务前重走共享边界。
+    if (containsNul(input))
+      throw new ApiError(
+        400,
+        "RUN_INPUT_INVALID",
+        "运行输入包含数据库不支持的字符",
+      );
+    try {
+      CreateRunRequestSchema.parse({ input });
+    } catch {
+      throw new ApiError(
+        400,
+        "RUN_INPUT_INVALID",
+        "运行输入超过限制或格式无效",
+      );
+    }
     const id = randomUUID();
     const row = await this.runs.createQueued({
       id,
@@ -100,7 +139,17 @@ export class RunService {
       })),
       eventWriter: this.events,
     });
-    if (!row) throw missing();
+    if (!row) {
+      // 提交前的条件锁发现 revision 已变；只对仍属当前用户的活动工作流公开冲突。
+      const current = await this.workflows.findActiveById(ownerId, workflowId);
+      if (current)
+        throw new ApiError(
+          409,
+          "WORKFLOW_REVISION_CONFLICT",
+          "工作流已更新，请重试运行",
+        );
+      throw missing();
+    }
     const response = toRunResponse(row);
     this.events.notifyCommitted(id);
     this.enqueuer.enqueue(id);

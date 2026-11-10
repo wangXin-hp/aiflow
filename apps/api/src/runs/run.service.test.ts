@@ -89,6 +89,9 @@ describe("RunService (real PostgreSQL)", () => {
       runs.createDebugRun(owner.id, workflow.id, { input: {} }),
     ).rejects.toMatchObject({ status: 400 });
     await expect(
+      runs.createDebugRun(owner.id, workflow.id, { input: { prompt: "a\0b" } }),
+    ).rejects.toMatchObject({ status: 400, code: "RUN_INPUT_INVALID" });
+    await expect(
       runs.createDebugRun(owner.id, workflow.id, { input: { prompt: null } }),
     ).rejects.toMatchObject({ status: 400 });
     expect(await db.prisma.workflowRun.count()).toBe(0);
@@ -135,9 +138,13 @@ describe("RunService (real PostgreSQL)", () => {
       id: run.id,
       status: "QUEUED",
     });
+    const changedDefinition: WorkflowV2 = structuredClone(definition);
+    const end = changedDefinition.nodes.find((node) => node.type === "end");
+    if (!end || end.type !== "end") throw new Error("missing end");
+    end.config.values = { result: { kind: "literal", value: "new" } };
     await workflows.update(owner.id, workflow.id, {
       revision: 1,
-      name: "changed",
+      definition: changedDefinition,
     });
     expect((await runs.get(owner.id, run.id)).definitionSnapshot).toEqual(
       definition,
@@ -180,8 +187,12 @@ describe("RunService (real PostgreSQL)", () => {
     expect(
       await db.prisma.workflowRun.count({ where: { ownerId: owner.id } }),
     ).toBe(0);
-    expect(await db.prisma.nodeRun.count()).toBe(0);
-    expect(await db.prisma.runEvent.count()).toBe(0);
+    expect(
+      await db.prisma.nodeRun.count({ where: { run: { ownerId: owner.id } } }),
+    ).toBe(0);
+    expect(
+      await db.prisma.runEvent.count({ where: { run: { ownerId: owner.id } } }),
+    ).toBe(0);
     expect(notify).not.toHaveBeenCalled();
   });
 
@@ -218,5 +229,111 @@ describe("RunService (real PostgreSQL)", () => {
       created.map(({ id }) => id).sort((a, b) => b.localeCompare(a)),
     );
     expect(second.nextCursor).toBeNull();
+  });
+
+  it("reports a same-owner active revision race as a conflict without creating a run", async () => {
+    const owner = await db.createUser("run-race");
+    const workflow = await workflows.create(owner.id, {
+      name: "before",
+      definition,
+    });
+    const repository = new PrismaRunRepository(db.prisma);
+    const racing = new RunService(
+      new PrismaWorkflowRepository(db.prisma),
+      {
+        createQueued: async (input) => {
+          await workflows.update(owner.id, workflow.id, {
+            revision: 1,
+            name: "after",
+          });
+          return repository.createQueued(input);
+        },
+        findOwned: (ownerId, runId) => repository.findOwned(ownerId, runId),
+        listOwned: (ownerId, take, cursor) =>
+          repository.listOwned(ownerId, take, cursor),
+      },
+      new RunEventWriter(db.prisma, new RunEventHub()),
+      { enqueue: (id) => enqueued.push(id) },
+    );
+    await expect(
+      racing.createDebugRun(owner.id, workflow.id, { input: { prompt: "x" } }),
+    ).rejects.toMatchObject({
+      status: 409,
+      code: "WORKFLOW_REVISION_CONFLICT",
+    });
+    expect(
+      await db.prisma.workflowRun.count({ where: { ownerId: owner.id } }),
+    ).toBe(0);
+    expect(enqueued).toEqual([]);
+  });
+
+  it("rejects input that exceeds the shared limit after defaults before any write or notification", async () => {
+    const owner = await db.createUser("run-default-limit");
+    const largeDefinition: WorkflowV2 = structuredClone(definition);
+    const start = largeDefinition.nodes.find((node) => node.type === "start");
+    if (!start || start.type !== "start" || !start.config)
+      throw new Error("missing start");
+    start.config.inputs = [
+      { name: "first", type: "string", required: true },
+      {
+        name: "second",
+        type: "string",
+        required: false,
+        defaultValue: "b".repeat(1_100_000),
+      },
+    ];
+    const workflow = await workflows.create(owner.id, {
+      name: "large default",
+      definition: largeDefinition,
+    });
+    await expect(
+      runs.createDebugRun(owner.id, workflow.id, {
+        input: { first: "a".repeat(1_100_000) },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(
+      await db.prisma.workflowRun.count({ where: { ownerId: owner.id } }),
+    ).toBe(0);
+    expect(
+      await db.prisma.nodeRun.count({ where: { run: { ownerId: owner.id } } }),
+    ).toBe(0);
+    expect(
+      await db.prisma.runEvent.count({ where: { run: { ownerId: owner.id } } }),
+    ).toBe(0);
+    expect(notify).not.toHaveBeenCalled();
+    expect(enqueued).toEqual([]);
+  });
+
+  it("distinguishes missing from explicit null and supports safe special field names", async () => {
+    const owner = await db.createUser("run-fields");
+    const fieldsDefinition: WorkflowV2 = structuredClone(definition);
+    const start = fieldsDefinition.nodes.find((node) => node.type === "start");
+    if (!start || start.type !== "start" || !start.config)
+      throw new Error("missing start");
+    start.config.inputs = [
+      { name: "constructor", type: "string", required: false },
+      {
+        name: "prompt",
+        type: "string",
+        required: true,
+        defaultValue: "default",
+      },
+      { name: "__proto__", type: "object", required: false },
+    ];
+    const workflow = await workflows.create(owner.id, {
+      name: "fields",
+      definition: fieldsDefinition,
+    });
+    await expect(
+      runs.createDebugRun(owner.id, workflow.id, { input: { prompt: null } }),
+    ).rejects.toMatchObject({ status: 400 });
+    const run = await runs.createDebugRun(owner.id, workflow.id, { input: {} });
+    expect(run.input).toEqual({ prompt: "default" });
+    expect(Object.hasOwn(run.input, "constructor")).toBe(false);
+    expect(Object.hasOwn(run.input, "__proto__")).toBe(false);
+    const given = await runs.createDebugRun(owner.id, workflow.id, {
+      input: { prompt: "given", constructor: "own" },
+    });
+    expect(given.input).toEqual({ prompt: "given", constructor: "own" });
   });
 });

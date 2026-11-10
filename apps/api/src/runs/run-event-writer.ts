@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import {
   RunEventSchema,
   MAX_RUN_EVENT_PAYLOAD_BYTES,
@@ -44,8 +44,8 @@ function toPublicEvent(row: RunEventRecord): RunEvent {
 @Injectable()
 export class RunEventWriter {
   constructor(
-    private readonly prisma: PrismaService,
-    private readonly hub: RunEventHub,
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(RunEventHub) private readonly hub: RunEventHub,
   ) {}
 
   /** 供创建运行的事务共用脱敏逻辑；调用方必须在事务提交后再通知。 */

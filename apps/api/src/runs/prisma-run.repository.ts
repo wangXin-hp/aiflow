@@ -1,11 +1,11 @@
-import { Injectable } from "@nestjs/common";
+import { Inject, Injectable } from "@nestjs/common";
 import { Prisma, type WorkflowRun } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
 import type { QueueRunInput, RunRepository } from "./run.repository.js";
 
 @Injectable()
 export class PrismaRunRepository implements RunRepository {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(@Inject(PrismaService) private readonly prisma: PrismaService) {}
 
   /** 锁定工作流到事务结束，保证归档与启动不能在快照创建过程中交错。 */
   async createQueued(input: QueueRunInput): Promise<WorkflowRun | null> {
