@@ -1,39 +1,10 @@
-import type {
-  CreateWorkflowRequest,
-  WorkflowResponse,
-} from "@aiflow/contracts";
+import type { WorkflowResponse } from "@aiflow/contracts";
 import { useEffect, useEffectEvent, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { ApiClientError } from "../auth/auth-api";
 import { useAuth } from "../auth/auth-state";
+import { createStarterDefinition } from "../workflow/graph";
 import { workflowApi } from "../workflow/workflow-api";
-
-// 创建接口会校验整张图，默认草稿直接提供可执行的开始与结束路径。
-const newDraft: CreateWorkflowRequest = {
-  name: "未命名工作流",
-  description: "",
-  definition: {
-    schemaVersion: 2,
-    nodes: [
-      { id: "start", type: "start", position: { x: 0, y: 0 } },
-      {
-        id: "end",
-        type: "end",
-        position: { x: 240, y: 0 },
-        config: { values: {} },
-      },
-    ],
-    edges: [
-      {
-        id: "start-end",
-        source: "start",
-        sourcePort: "output",
-        target: "end",
-        targetPort: "input",
-      },
-    ],
-  },
-};
 
 const createdDate = new Intl.DateTimeFormat("zh-CN", { dateStyle: "medium" });
 
@@ -130,7 +101,11 @@ export function AppHomePage() {
 
   function create() {
     void perform("create", "创建工作流失败，请重试", async (signal) => {
-      const workflow = await workflowApi.create(newDraft);
+      const workflow = await workflowApi.create({
+        name: "未命名工作流",
+        description: "",
+        definition: createStarterDefinition(),
+      });
       if (!signal.aborted) void navigate(`/workflows/${workflow.id}`);
     });
   }
