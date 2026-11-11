@@ -332,3 +332,23 @@ describe("WorkflowCanvas", () => {
     });
   });
 });
+it("定位请求将视口平移到错误节点，并保留当前缩放级别", () => {
+  const definition = createStarterDefinition();
+  definition.nodes[1]!.position = { x: 5000, y: 4000 };
+  const { rerender, onChange, onSelect } = setup(definition);
+  const fitView = vi.fn().mockResolvedValue(true);
+  act(() =>
+    flow.onInit?.({ fitView, getZoom: () => 0.75 } as unknown as Parameters<
+      NonNullable<typeof flow.onInit>
+    >[0]),
+  );
+  const props = { definition, onChange, onSelect, selectedNodeId: "end" };
+  rerender(<WorkflowCanvas {...props} focusRequest={{ nodeId: "end" }} />);
+  expect(fitView).toHaveBeenCalledWith(
+    expect.objectContaining({
+      nodes: [{ id: "end" }],
+      minZoom: 0.75,
+      maxZoom: 0.75,
+    }),
+  );
+});

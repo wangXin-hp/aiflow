@@ -19,10 +19,10 @@ function DraftEditor({
   onReload: () => void;
   reloading: boolean;
 }) {
-  const { retry } = useAuth();
-  const workflow = useWorkflowDraft(initial, retry);
+  const workflow = useWorkflowDraft(initial);
   const { draft, dirty, saving, conflict } = workflow;
   const [selectedNodeId, selectNode] = useState<string | null>(null);
+  const [focusRequest, setFocusRequest] = useState<{ nodeId: string }>();
   const selected = draft.definition.nodes.find(
     ({ id }) => id === selectedNodeId,
   );
@@ -85,17 +85,34 @@ function DraftEditor({
           inert={reloading || blocked}
         >
           <ul>
-            {workflow.issues.map(({ message, nodeId }, index) => (
-              <li key={index}>
-                {nodeId ? (
-                  <button type="button" onClick={() => selectNode(nodeId)}>
-                    {message}
-                  </button>
-                ) : (
-                  message
-                )}
-              </li>
-            ))}
+            {workflow.issues.map(
+              ({ message, nodeId, reauthenticate }, index) => (
+                <li key={index}>
+                  {nodeId ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        selectNode(nodeId);
+                        setFocusRequest({ nodeId });
+                      }}
+                    >
+                      {message}
+                    </button>
+                  ) : (
+                    message
+                  )}
+                  {reauthenticate && (
+                    <Link
+                      to="/account/login"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      在新标签页重新登录
+                    </Link>
+                  )}
+                </li>
+              ),
+            )}
           </ul>
           {conflict && (
             <button
@@ -116,6 +133,7 @@ function DraftEditor({
           onChange={workflow.setDefinition}
           selectedNodeId={selectedNodeId}
           onSelect={selectNode}
+          focusRequest={focusRequest}
         />
         {selected ? (
           <NodeInspector

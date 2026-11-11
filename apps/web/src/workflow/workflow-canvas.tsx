@@ -10,9 +10,10 @@ import {
   ReactFlow,
   type Connection,
   type Edge,
+  type ReactFlowInstance,
   type ReactFlowProps,
 } from "@xyflow/react";
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import {
   addNode,
@@ -45,6 +46,8 @@ export interface WorkflowCanvasProps {
   onChange: (definition: WorkflowV2) => void;
   onSelect: (nodeId: string | null) => void;
   selectedNodeId: string | null;
+  /** 每次问题定位传入一个新对象，可在用户平移后再次定位同一节点。 */
+  focusRequest?: { nodeId: string };
   nodeStatuses?: Readonly<Partial<Record<string, NodeRunResponse["status"]>>>;
 }
 
@@ -69,12 +72,26 @@ export function WorkflowCanvas({
   onChange,
   onSelect,
   selectedNodeId,
+  focusRequest,
   nodeStatuses,
 }: WorkflowCanvasProps) {
+  const [flowInstance, setFlowInstance] =
+    useState<ReactFlowInstance<StudioNode, Edge>>();
   const [connectionError, setConnectionError] = useState("");
   const [pendingPort, setPendingPort] = useState<StudioPort | null>(null);
   const draggedPort = useRef(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!flowInstance || !focusRequest) return;
+    const zoom = flowInstance.getZoom();
+    // 单节点适应视图以其测量边界为中心，固定缩放级别只移动视口。
+    void flowInstance.fitView({
+      nodes: [{ id: focusRequest.nodeId }],
+      minZoom: zoom,
+      maxZoom: zoom,
+      duration: 240,
+    });
+  }, [flowInstance, focusRequest]);
   const elements = useMemo(() => toFlowElements(definition), [definition]);
   const edges = useMemo(
     () =>
@@ -283,6 +300,7 @@ export function WorkflowCanvas({
           nodes={nodes}
           edges={edges}
           nodeTypes={nodeTypes}
+          onInit={setFlowInstance}
           onNodesChange={handleNodesChange}
           onEdgesChange={handleEdgesChange}
           onConnect={handleConnect}

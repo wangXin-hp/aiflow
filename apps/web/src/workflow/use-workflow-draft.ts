@@ -10,7 +10,11 @@ import { ApiClientError } from "../auth/auth-api";
 import { findDanglingReferences } from "./graph";
 import { workflowApi } from "./workflow-api";
 
-type DraftIssue = { message: string; nodeId?: string };
+type DraftIssue = {
+  message: string;
+  nodeId?: string;
+  reauthenticate?: boolean;
+};
 type AdvancedConfig = { text: string; error?: string };
 type DraftState = {
   draft: WorkflowResponse;
@@ -80,6 +84,14 @@ function serverIssues(error: unknown, definition: WorkflowV2): DraftIssue[] {
     return [
       { message: "服务器上已有更新。本地改动已保留，可重新载入服务器版本。" },
     ];
+  if (error.status === 401) {
+    return [
+      {
+        message: "会话需要恢复。本地改动已保留，恢复会话后可重新保存。",
+        reauthenticate: true,
+      },
+    ];
+  }
   const issues: DraftIssue[] = [{ message: error.message }];
   if (Array.isArray(error.details)) {
     for (const detail of error.details) {
@@ -105,10 +117,7 @@ function serverIssues(error: unknown, definition: WorkflowV2): DraftIssue[] {
 }
 
 /** 草稿按本地编辑序号保存。只有该次请求覆盖当前序号时才返回 true，可安全启动调试。 */
-export function useWorkflowDraft(
-  initial: WorkflowResponse,
-  onUnauthorized?: () => void,
-) {
+export function useWorkflowDraft(initial: WorkflowResponse) {
   const [state, setState] = useState<DraftState>(() => ({
     draft: initial,
     version: 0,
@@ -133,7 +142,9 @@ export function useWorkflowDraft(
       draft,
       advanced,
       version: current.version + 1,
-      issues: current.conflict ? current.issues : [],
+      issues: current.conflict
+        ? current.issues
+        : current.issues.filter(({ reauthenticate }) => reauthenticate),
     });
   }
 
@@ -284,13 +295,17 @@ export function useWorkflowDraft(
       return covered;
     } catch (error) {
       const current = latest.current;
-      if (error instanceof ApiClientError && error.status === 401)
-        onUnauthorized?.();
+      const status = error instanceof ApiClientError ? error.status : undefined;
+      // 401 交给用户恢复会话，认证路由重载会卸载编辑器。400 仅适用于提交时的草稿。
+      const obsoleteValidation =
+        status === 400 && current.version !== submitted.version;
       publish({
         ...current,
         saving: false,
-        conflict: error instanceof ApiClientError && error.status === 409,
-        issues: serverIssues(error, definition),
+        conflict: status === 409,
+        issues: obsoleteValidation
+          ? current.issues
+          : serverIssues(error, definition),
       });
       return false;
     }

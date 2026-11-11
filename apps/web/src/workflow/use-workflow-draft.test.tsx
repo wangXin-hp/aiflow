@@ -67,3 +67,30 @@ it("旧提交完成后保留更新的本地编辑，下一次保存使用新 rev
   });
   expect(result.current.dirty).toBe(false);
 });
+it("保存期间继续编辑时忽略旧快照的 400 图错误", async () => {
+  const { result } = renderHook(() => useWorkflowDraft(original));
+  let resolve!: (response: Response) => void;
+  fetchMock.mockReturnValueOnce(
+    new Promise<Response>((complete) => {
+      resolve = complete;
+    }),
+  );
+  act(() => result.current.setName("提交的编辑"));
+  let save!: Promise<boolean>;
+  act(() => {
+    save = result.current.save();
+    result.current.setName("当前编辑");
+  });
+  await act(async () => {
+    resolve(
+      Response.json(
+        { code: "WORKFLOW_GRAPH_INVALID", message: "旧快照无效" },
+        { status: 400 },
+      ),
+    );
+    expect(await save).toBe(false);
+  });
+  expect(result.current.issues).toEqual([]);
+  expect(result.current.draft.name).toBe("当前编辑");
+  expect(result.current.dirty).toBe(true);
+});

@@ -5,3 +5,7 @@ qdrant
 unstub
 onwarn
 volces
+xyflow
+Reconnectable
+pannable
+zoomable

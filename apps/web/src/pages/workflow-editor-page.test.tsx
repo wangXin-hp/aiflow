@@ -3,6 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { beforeEach, expect, it, vi } from "vitest";
 import { AuthProvider } from "../auth/auth-context";
+import { ProtectedRoute } from "../auth/protected-route";
 import { createStarterDefinition } from "../workflow/graph";
 import { WorkflowEditorPage } from "./workflow-editor-page";
 
@@ -25,12 +26,12 @@ function mount() {
   const router = createMemoryRouter(
     [
       {
-        path: "/workflows/:id",
         element: (
           <AuthProvider>
-            <WorkflowEditorPage />
+            <ProtectedRoute />
           </AuthProvider>
         ),
+        children: [{ path: "/workflows/:id", element: <WorkflowEditorPage /> }],
       },
       { path: "/apps", element: <h1>工作流列表</h1> },
     ],
@@ -43,7 +44,20 @@ beforeEach(() => {
   stored = structuredClone(draft);
   fetchMock.mockReset();
   fetchMock.mockImplementation(async (url, init) => {
-    if (url === "/api/auth/me") return new Response(null, { status: 401 });
+    if (url === "/api/auth/me")
+      return Response.json({
+        success: true,
+        data: {
+          user: {
+            id: "user-1",
+            email: "editor@example.com",
+            name: "Editor",
+            avatarUrl: null,
+            emailVerifiedAt: timestamp,
+            createdAt: timestamp,
+          },
+        },
+      });
     if (init?.method === "PATCH") {
       stored = {
         ...stored,
@@ -217,4 +231,28 @@ it("冲突时保留本地草稿，只在确认重新载入后替换", async () =
   fireEvent.click(reload);
   await screen.findByDisplayValue("其他会话的新名称");
   expect(screen.getByText("已保存")).toBeInTheDocument();
+});
+
+it("401 保存后在受保护路由上保留本地编辑，可恢复会话后重新保存", async () => {
+  mount();
+  const name = await screen.findByRole("textbox", { name: "工作流名称" });
+  fireEvent.change(name, { target: { value: "会话恢复后保存" } });
+  fetchMock.mockResolvedValueOnce(
+    Response.json(
+      { code: "UNAUTHORIZED", message: "会话已失效" },
+      { status: 401 },
+    ),
+  );
+  await act(async () =>
+    fireEvent.click(screen.getByRole("button", { name: "保存" })),
+  );
+  expect(screen.getByRole("textbox", { name: "工作流名称" })).toHaveValue(
+    "会话恢复后保存",
+  );
+  expect(
+    screen.getByRole("link", { name: "在新标签页重新登录" }),
+  ).toHaveAttribute("target", "_blank");
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await screen.findByText("已保存");
+  expect(stored.name).toBe("会话恢复后保存");
 });
