@@ -38,11 +38,12 @@ export class RunEventStreamService {
     if (!owned) throw new ApiError(404, "RUN_NOT_FOUND", "运行不存在");
   }
 
-  /** 先订阅后查历史；通知与首次查询竞争时再读一次数据库，不会漏掉已提交事件。 */
+  /** 先订阅后查历史；headersSent 用于区分可返回 HTTP 错误与只能断线重连的故障。 */
   stream(
     ownerId: string,
     runId: string,
     afterId?: string,
+    headersSent: () => boolean = () => false,
   ): Observable<MessageEvent> {
     const parsed = RunEventCursorSchema.safeParse(afterId ?? "0");
     if (!parsed.success)
@@ -68,6 +69,16 @@ export class RunEventStreamService {
       const finish = () => {
         closed = true;
         subscriber.complete();
+      };
+      const fail = (error: unknown) => {
+        if (!headersSent()) {
+          closed = true;
+          subscriber.error(error);
+          return;
+        }
+        // HTTP 状态已无法改变，直接断线让客户端用最后的持久化 ID 重连。
+        this.logger.warn("SSE 持久化读取失败，连接已关闭");
+        finish();
       };
       const drain = async () => {
         if (reading || closed) return;
@@ -128,10 +139,8 @@ export class RunEventStreamService {
               }
             }
           }
-        } catch {
-          // 响应头可能已经提交；错误交给 Nest 会产生合成 ID 的 error 帧。
-          this.logger.warn("SSE 持久化读取失败，连接已关闭");
-          finish();
+        } catch (error) {
+          fail(error);
         } finally {
           reading = false;
           // 查询正结束时的新通知仍须启动下一轮，且不能与本轮并发。
@@ -139,13 +148,10 @@ export class RunEventStreamService {
         }
       };
       // 鉴权在 HTTP 建流前执行，订阅时再查一次以保护直接使用服务的调用方。
-      void this.assertOwned(ownerId, runId).then(
-        () => {
-          authorized = true;
-          wake();
-        },
-        () => finish(),
-      );
+      void this.assertOwned(ownerId, runId).then(() => {
+        authorized = true;
+        wake();
+      }, fail);
       return () => {
         closed = true;
         notifications.unsubscribe();

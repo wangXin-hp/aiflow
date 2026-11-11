@@ -7,8 +7,10 @@ import {
   Inject,
   Param,
   Post,
+  Res,
   Sse,
 } from "@nestjs/common";
+import type { Response } from "express";
 import { z } from "zod";
 import {
   CreateRunRequestSchema,
@@ -70,11 +72,18 @@ export class RunController {
   async stream(
     @CurrentUser() user: PublicUser,
     @Param("id", idPipe) id: string,
+    @Res({ passthrough: true }) response: Response,
     @Headers("last-event-id") rawCursor?: string | string[],
   ) {
     if (Array.isArray(rawCursor))
       throw new ApiError(400, "INVALID_EVENT_CURSOR", "事件游标无效");
-    const stream = this.events.stream(user.id, id, rawCursor);
+    // 订阅后的失败按响应头是否已经提交处理，避免空 200 与合成 SSE 游标。
+    const stream = this.events.stream(
+      user.id,
+      id,
+      rawCursor,
+      () => response.headersSent,
+    );
     await this.events.assertOwned(user.id, id);
     return stream;
   }

@@ -151,7 +151,7 @@ describe("persisted run SSE stream", () => {
     await Promise.resolve();
     expect(pages).toEqual([]);
     rejectOwnership(null);
-    expect(await pending).toEqual([]);
+    await expect(pending).rejects.toMatchObject({ status: 404 });
   });
 
   it("subscribes before backlog query and catches an event committed during that query", async () => {
@@ -276,7 +276,9 @@ describe("persisted run SSE stream", () => {
       if (calls > 1) throw new Error("database unavailable");
       return firstFind(...args);
     };
-    const result = await collect(service.stream(ownerId, runId));
+    const result = await collect(
+      service.stream(ownerId, runId, undefined, () => true),
+    );
     expect(result.map((item) => item.id)).toEqual(["1"]);
     const wire = await encodeWire(result[0]!);
     expect(wire).toContain("id: 1");
