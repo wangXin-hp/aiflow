@@ -39,18 +39,22 @@ curl -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>'
 curl -N -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>/events'
 ```
 
-Windows PowerShell 5.1 在仓库根目录使用 UTF-8 无 BOM 文件发送 JSON；`--data-binary '@文件名'` 让 curl 从文件读取请求体，保留 JSON 双引号。替换邮箱、密码和两个响应中的 ID 后依次执行：
+Windows PowerShell 5.1 在仓库根目录使用 UTF-8 无 BOM 文件发送 JSON。先从 PowerShell 当前目录解析绝对路径，再让写入和 `curl.exe --data-binary` 共用该路径；这样从上级目录执行 `Set-Location aiflow` 后也能读取刚写入的文件。替换邮箱、密码和两个响应中的 ID 后依次执行：
 
 ```powershell
 $utf8 = [System.Text.UTF8Encoding]::new($false)
-[System.IO.File]::WriteAllText('auth.json', '{"email":"you@example.com","password":"replace-with-a-long-password"}', $utf8)
-[System.IO.File]::WriteAllText('workflow.json', '{"name":"first run","definition":{"schemaVersion":2,"nodes":[{"id":"start","type":"start","position":{"x":0,"y":0}},{"id":"end","type":"end","position":{"x":200,"y":0},"config":{"values":{}}}],"edges":[{"id":"start-end","source":"start","sourcePort":"output","target":"end","targetPort":"input"}]}}', $utf8)
-[System.IO.File]::WriteAllText('run.json', '{"input":{}}', $utf8)
-curl.exe -X POST http://127.0.0.1:3000/api/auth/register -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@auth.json'
+$exampleDir = (Get-Location).ProviderPath
+$authPath = Join-Path $exampleDir 'auth.json'
+$workflowPath = Join-Path $exampleDir 'workflow.json'
+$runPath = Join-Path $exampleDir 'run.json'
+[System.IO.File]::WriteAllText($authPath, '{"email":"you@example.com","password":"replace-with-a-long-password"}', $utf8)
+[System.IO.File]::WriteAllText($workflowPath, '{"name":"first run","definition":{"schemaVersion":2,"nodes":[{"id":"start","type":"start","position":{"x":0,"y":0}},{"id":"end","type":"end","position":{"x":200,"y":0},"config":{"values":{}}}],"edges":[{"id":"start-end","source":"start","sourcePort":"output","target":"end","targetPort":"input"}]}}', $utf8)
+[System.IO.File]::WriteAllText($runPath, '{"input":{}}', $utf8)
+curl.exe -X POST http://127.0.0.1:3000/api/auth/register -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary "@$authPath"
 curl.exe 'http://127.0.0.1:3000/api/auth/verify?token=<token>'
-curl.exe -c cookies.txt -X POST http://127.0.0.1:3000/api/auth/login -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@auth.json'
-curl.exe -b cookies.txt -X POST http://127.0.0.1:3000/api/workflows -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@workflow.json'
-curl.exe -b cookies.txt -X POST 'http://127.0.0.1:3000/api/workflows/<workflow-id>/runs' -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@run.json'
+curl.exe -c cookies.txt -X POST http://127.0.0.1:3000/api/auth/login -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary "@$authPath"
+curl.exe -b cookies.txt -X POST http://127.0.0.1:3000/api/workflows -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary "@$workflowPath"
+curl.exe -b cookies.txt -X POST 'http://127.0.0.1:3000/api/workflows/<workflow-id>/runs' -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary "@$runPath"
 curl.exe -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>'
 curl.exe -N -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>/events'
 ```
