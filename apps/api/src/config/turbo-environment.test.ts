@@ -12,7 +12,7 @@ type DryRunTask = {
 };
 
 describe("Turbo API environment boundary", () => {
-  it("passes database overrides only to API tests and disables their cache", () => {
+  it("passes test database and auth settings only to API tests and disables their cache", () => {
     const workspace = fileURLToPath(new URL("../../../../", import.meta.url));
     const output =
       process.platform === "win32"
@@ -24,8 +24,11 @@ describe("Turbo API environment boundary", () => {
               encoding: "utf8",
               env: {
                 ...process.env,
+                DATABASE_URL:
+                  "postgresql://probe:probe@127.0.0.1:6543/non_default_test",
                 TEST_DATABASE_URL:
                   "postgresql://probe:probe@127.0.0.1:6543/non_default_test",
+                JWT_SECRET: "probe-secret-with-at-least-32-characters",
               },
             },
           )
@@ -34,8 +37,11 @@ describe("Turbo API environment boundary", () => {
             encoding: "utf8",
             env: {
               ...process.env,
+              DATABASE_URL:
+                "postgresql://probe:probe@127.0.0.1:6543/non_default_test",
               TEST_DATABASE_URL:
                 "postgresql://probe:probe@127.0.0.1:6543/non_default_test",
+              JWT_SECRET: "probe-secret-with-at-least-32-characters",
             },
           });
     const tasks = (JSON.parse(output) as { tasks: DryRunTask[] }).tasks;
@@ -45,9 +51,13 @@ describe("Turbo API environment boundary", () => {
     expect(api?.environmentVariables.specified.env).toContain(
       "TEST_DATABASE_URL",
     );
+    expect(api?.environmentVariables.specified.env).toContain("DATABASE_URL");
+    expect(api?.environmentVariables.specified.env).toContain("JWT_SECRET");
     expect(api?.resolvedTaskDefinition.cache).toBe(false);
     // Turbo 只展示哈希，不泄漏连接串；存在哈希证明非默认覆盖值进入了 API 任务边界。
     expect(api?.environmentVariables.configured).toEqual([
+      expect.stringMatching(/^DATABASE_URL=[a-f\d]{64}$/),
+      expect.stringMatching(/^JWT_SECRET=[a-f\d]{64}$/),
       expect.stringMatching(/^TEST_DATABASE_URL=[a-f\d]{64}$/),
     ]);
     expect(web?.environmentVariables.specified.env).not.toContain(
