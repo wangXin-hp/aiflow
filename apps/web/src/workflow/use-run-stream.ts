@@ -143,8 +143,6 @@ export function useRunStream(runId: string | undefined, workflowId: string) {
           error: undefined,
         });
         if (!source && !stopped) connect();
-        else if (source?.readyState !== 1 && isTerminalRun(detail.status))
-          stop();
         else if (stopped && !isTerminalRun(status)) {
           if (retryConnection) connect();
           else update({ error: "事件流已断开，请重试连接" });
@@ -233,7 +231,8 @@ export function useRunStream(runId: string | undefined, workflowId: string) {
       });
       stream.addEventListener("error", () => {
         if (!active || stopped || source !== stream) return;
-        if (isTerminalRun(state.detail?.status) || stream.readyState === 2) {
+        // 详情可能先于终态事件到达；连接中的浏览器仍需按游标补发事件。
+        if (stream.readyState === EventSource.CLOSED) {
           stop();
           void refresh();
           return;
