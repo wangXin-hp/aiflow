@@ -68,7 +68,7 @@ curl -N -b cookies.txt -H 'Last-Event-ID: <last-event-id>' 'http://127.0.0.1:300
 curl -b cookies.txt -X POST -H 'Origin: http://127.0.0.1:5173' 'http://127.0.0.1:3000/api/runs/<run-id>/cancel'
 ```
 
-取消是协作式的：数据库状态会走向 `CANCELLING`/`CANCELLED`，已发出的模型或 HTTP 外部副作用无法撤回。编辑草稿后，已创建运行仍使用启动时保存的 `definitionSnapshot`。日志事件只含状态、耗时和错误代码；完整业务输入输出只在受保护的运行详情中。
+取消是协作式的：数据库状态会走向 `CANCELLING`/`CANCELLED`，已发出的模型或 HTTP 外部副作用无法撤回。编辑草稿后，已创建运行仍使用启动时保存的 `definitionSnapshot`。受保护的运行详情包含按快照顺序排列的节点状态、时间、错误及节点输入输出；日志事件只含状态、耗时和错误代码。`RUN_EVENT_MAX_BYTES` 可将单条公开事件设为 18–65536 字节。Qdrant 全文检索无需 Ark 向量化配置；向量和混合检索需要 `ARK_API_KEY` 与 `ARK_EMBEDDING_MODEL_ID`。
 
 ## 验证与部署边界
 

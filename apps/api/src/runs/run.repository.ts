@@ -1,4 +1,4 @@
-import type { WorkflowRun } from "../generated/prisma/client.js";
+import type { NodeRun, WorkflowRun } from "../generated/prisma/client.js";
 import type { WorkflowV2, JsonObject } from "@aiflow/contracts";
 import type { RunEventWriter } from "./run-event-writer.js";
 
@@ -16,7 +16,10 @@ export interface QueueRunInput {
 /** 所有运行读取显式限定 owner；queued 事件和节点创建属于同一个数据库事务。 */
 export interface RunRepository {
   createQueued(input: QueueRunInput): Promise<WorkflowRun | null>;
-  findOwned(ownerId: string, runId: string): Promise<WorkflowRun | null>;
+  findOwned(
+    ownerId: string,
+    runId: string,
+  ): Promise<(WorkflowRun & { nodes: NodeRun[] }) | null>;
   listOwned(
     ownerId: string,
     take: number,

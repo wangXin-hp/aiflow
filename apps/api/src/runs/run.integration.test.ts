@@ -10,6 +10,10 @@ import { configureHttpApplication } from "../common/http-application.js";
 import { loadEnvironment, type Environment } from "../config/environment.js";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
 import { RunCoordinator } from "./run-coordinator.js";
+import {
+  RUN_EXECUTION_STORE,
+  type RunExecutionStore,
+} from "./run-execution.store.js";
 import { RunRecoveryService } from "./run-recovery.service.js";
 import { RUN_ENQUEUER } from "./run.service.js";
 
@@ -126,6 +130,39 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
     expect(started.status).toBe(202);
     const runId = started.body.data.id as string;
     expect(enqueued).toEqual([runId]);
+    const pending = await request(app.getHttpServer())
+      .get(`/api/runs/${runId}`)
+      .set("Cookie", ownerCookie);
+    expect(pending.status).toBe(200);
+    expect(pending.body.data.nodes).toMatchObject([
+      {
+        nodeId: "start",
+        nodeType: "start",
+        status: "PENDING",
+        input: null,
+        output: null,
+      },
+      {
+        nodeId: "end",
+        nodeType: "end",
+        status: "PENDING",
+        input: null,
+        output: null,
+      },
+    ]);
+    expect(Object.keys(pending.body.data.nodes[0]).sort()).toEqual([
+      "elapsedMs",
+      "errorCode",
+      "errorMessage",
+      "finishedAt",
+      "id",
+      "input",
+      "nodeId",
+      "nodeType",
+      "output",
+      "startedAt",
+      "status",
+    ]);
     expect(
       (
         await database.prisma.workflowRun.findUniqueOrThrow({
@@ -177,6 +214,10 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
       .set("Cookie", ownerCookie);
     expect(detail.status).toBe(200);
     expect(detail.body.data.definitionSnapshot).toEqual(definition);
+    expect(detail.body.data.nodes).toMatchObject([
+      { nodeId: "start", status: "SUCCEEDED" },
+      { nodeId: "end", status: "SUCCEEDED", output: { answer: "original" } },
+    ]);
     const foreign = await request(app.getHttpServer())
       .get(`/api/runs/${runId}`)
       .set("Cookie", otherCookie);
@@ -236,5 +277,82 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
     );
     expect(replay.text).not.toContain(marker);
     expect(frames.at(-1)?.event).toBe("run.succeeded");
+  }, 20_000);
+
+  it("returns persisted intermediate output and recovered node state", async () => {
+    const graph: WorkflowV2 = structuredClone(definition);
+    graph.nodes.splice(1, 0, {
+      id: "middle",
+      type: "transform",
+      position: { x: 50, y: 0 },
+      config: {
+        values: { evidence: { kind: "literal", value: "intermediate" } },
+      },
+    });
+    graph.edges = [
+      {
+        id: "start-middle",
+        source: "start",
+        sourcePort: "output",
+        target: "middle",
+        targetPort: "input",
+      },
+      {
+        id: "middle-end",
+        source: "middle",
+        sourcePort: "output",
+        target: "end",
+        targetPort: "input",
+      },
+    ];
+    const created = await request(app.getHttpServer())
+      .post("/api/workflows")
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ name: "intermediate detail", definition: graph });
+    expect(created.status).toBe(201);
+    const queued = await request(app.getHttpServer())
+      .post(`/api/workflows/${created.body.data.id}/runs`)
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ input: { prompt: marker } });
+    expect(queued.status).toBe(202);
+    const runId = queued.body.data.id as string;
+    await coordinator.execute(runId);
+    const complete = await request(app.getHttpServer())
+      .get(`/api/runs/${runId}`)
+      .set("Cookie", ownerCookie);
+    expect(complete.status).toBe(200);
+    expect(complete.body.data.nodes).toMatchObject([
+      { nodeId: "start", status: "SUCCEEDED" },
+      {
+        nodeId: "middle",
+        status: "SUCCEEDED",
+        output: { evidence: "intermediate" },
+      },
+      { nodeId: "end", status: "SUCCEEDED" },
+    ]);
+    const foreign = await request(app.getHttpServer())
+      .get(`/api/runs/${runId}`)
+      .set("Cookie", otherCookie);
+    expect(foreign.status).toBe(404);
+    const inherited = await request(app.getHttpServer())
+      .post(`/api/workflows/${created.body.data.id}/runs`)
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ input: { prompt: marker } });
+    expect(inherited.status).toBe(202);
+    const inheritedId = inherited.body.data.id as string;
+    const store = app.get<RunExecutionStore>(RUN_EXECUTION_STORE);
+    expect(await store.recover([inheritedId])).toBe(1);
+    const recovered = await request(app.getHttpServer())
+      .get(`/api/runs/${inheritedId}`)
+      .set("Cookie", ownerCookie);
+    expect(recovered.body.data.status).toBe("INTERRUPTED");
+    expect(recovered.body.data.nodes).toMatchObject([
+      { nodeId: "start", status: "CANCELLED" },
+      { nodeId: "middle", status: "CANCELLED" },
+      { nodeId: "end", status: "CANCELLED" },
+    ]);
   }, 20_000);
 });

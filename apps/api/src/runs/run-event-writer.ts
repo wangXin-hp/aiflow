@@ -1,4 +1,5 @@
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Optional } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   RunEventSchema,
   MAX_RUN_EVENT_PAYLOAD_BYTES,
@@ -9,6 +10,7 @@ import {
   type RunEvent as RunEventRecord,
 } from "../generated/prisma/client.js";
 import { PrismaService } from "../database/prisma.service.js";
+import type { Environment } from "../config/environment.js";
 import { RunEventHub } from "./run-event-hub.js";
 import { sanitizeRunEventPayload } from "./run-event-sanitizer.js";
 
@@ -46,6 +48,9 @@ export class RunEventWriter {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RunEventHub) private readonly hub: RunEventHub,
+    @Optional()
+    @Inject(ConfigService)
+    private readonly config?: ConfigService<Environment, true>,
   ) {}
 
   /** 供创建运行的事务共用脱敏逻辑；调用方必须在事务提交后再通知。 */
@@ -58,7 +63,8 @@ export class RunEventWriter {
       level: input.level,
       payload: sanitizeRunEventPayload(
         input.payload,
-        MAX_RUN_EVENT_PAYLOAD_BYTES,
+        this.config?.get("RUN_EVENT_MAX_BYTES", { infer: true }) ??
+          MAX_RUN_EVENT_PAYLOAD_BYTES,
       ),
     });
     return {

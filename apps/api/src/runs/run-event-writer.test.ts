@@ -3,6 +3,8 @@ import { firstValueFrom, take } from "rxjs";
 import { RunEventHub } from "./run-event-hub.js";
 import { RunEventWriter } from "./run-event-writer.js";
 import type { PrismaService } from "../database/prisma.service.js";
+import { ConfigService } from "@nestjs/config";
+import { loadEnvironment, type Environment } from "../config/environment.js";
 
 const runId = "123e4567-e89b-42d3-a456-426614174000";
 const base = {
@@ -22,6 +24,23 @@ const row = {
 };
 
 describe("RunEventWriter", () => {
+  it("honors the validated deployment byte limit", () => {
+    const config = new ConfigService<Environment, true>(
+      loadEnvironment({
+        NODE_ENV: "test",
+        JWT_SECRET: "writer-test-secret-at-least-thirty-two-characters",
+        RUN_EVENT_MAX_BYTES: "18",
+      }),
+    );
+    const writer = new RunEventWriter(
+      {} as PrismaService,
+      new RunEventHub(),
+      config,
+    );
+    expect(
+      writer.prepare({ ...base, payload: { status: "RUNNING" } }).payload,
+    ).toEqual({ truncated: true });
+  });
   it("sanitizes and persists before notifying subscribers", async () => {
     let resolveInsert!: (value: typeof row) => void;
     const create = vi.fn().mockReturnValue(

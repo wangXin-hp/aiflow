@@ -61,6 +61,14 @@ function boundedJsonObject({
 
     function consumeString(value: string): boolean {
       // 先排除明显超限的字符串，避免为整份载荷或单个超大字符串分配缓冲区。
+      // JSON.stringify 会把孤立代理项转义为文本；输入在写库前应保留合法 UTF-16 语义。
+      for (let index = 0; index < value.length; index++) {
+        const unit = value.charCodeAt(index);
+        if (unit >= 0xd800 && unit <= 0xdbff) {
+          const next = value.charCodeAt(++index);
+          if (!(next >= 0xdc00 && next <= 0xdfff)) return false;
+        } else if (unit >= 0xdc00 && unit <= 0xdfff) return false;
+      }
       return (
         value.length <= remainingBytes &&
         consume(utf8.encode(JSON.stringify(value)).byteLength)
@@ -148,6 +156,25 @@ export const RunResponseSchema = z.strictObject({
   finishedAt: timestamp.nullable(),
 });
 
+/** 节点详情仅随受保护的运行详情返回；公开事件仍只携带安全状态字段。 */
+export const NodeRunResponseSchema = z.strictObject({
+  id: uuid,
+  nodeId: z.string(),
+  nodeType: z.string(),
+  status: NodeRunStatusSchema,
+  input: z.json().nullable(),
+  output: z.json().nullable(),
+  errorCode: z.string().nullable(),
+  errorMessage: z.string().nullable(),
+  startedAt: timestamp.nullable(),
+  finishedAt: timestamp.nullable(),
+  elapsedMs: z.int().nonnegative().nullable(),
+});
+
+export const RunDetailResponseSchema = RunResponseSchema.extend({
+  nodes: z.array(NodeRunResponseSchema),
+});
+
 /** 公开事件只允许状态、耗时、错误代码和截断标记；应用层负责写入前脱敏。 */
 export const SafeRunEventPayloadSchema = boundedJsonObject({
   maxDepth: 8,
@@ -179,4 +206,6 @@ export const RunEventSchema = z.strictObject({
 
 export type CreateRunRequest = z.infer<typeof CreateRunRequestSchema>;
 export type RunResponse = z.infer<typeof RunResponseSchema>;
+export type NodeRunResponse = z.infer<typeof NodeRunResponseSchema>;
+export type RunDetailResponse = z.infer<typeof RunDetailResponseSchema>;
 export type RunEvent = z.infer<typeof RunEventSchema>;

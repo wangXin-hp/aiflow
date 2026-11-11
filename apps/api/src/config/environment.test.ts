@@ -116,6 +116,8 @@ describe("environment configuration", () => {
     ["RUN_NODE_TIMEOUT_MS", "0"],
     ["RUN_TOTAL_TIMEOUT_MS", "0"],
     ["RUN_EVENT_MAX_BYTES", "0"],
+    ["RUN_EVENT_MAX_BYTES", "17"],
+    ["RUN_EVENT_MAX_BYTES", "65537"],
     ["SMTP_PORT", "65536"],
     ["SMTP_SECURE", "yes"],
     ["ARK_BASE_URL", "file:///tmp/ark"],

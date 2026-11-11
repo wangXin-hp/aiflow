@@ -5,6 +5,103 @@ import type { PrismaService } from "../database/prisma.service.js";
 import { RunAdaptersFactory } from "./run-adapters.factory.js";
 
 describe("RunAdaptersFactory", () => {
+  it("runs owner-scoped fulltext retrieval without Ark embeddings", async () => {
+    const send = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          result: {
+            points: [
+              {
+                id: "chunk",
+                payload: {
+                  knowledgeBaseId: "owned",
+                  documentId: "doc",
+                  content: "private answer",
+                },
+              },
+            ],
+            next_page_offset: null,
+          },
+        }),
+        { status: 200 },
+      ),
+    );
+    const findMany = vi
+      .fn()
+      .mockResolvedValue([
+        { id: "owned", qdrantCollection: "owned_collection" },
+      ]);
+    const factory = new RunAdaptersFactory(
+      new ConfigService<Environment, true>(
+        loadEnvironment({
+          NODE_ENV: "test",
+          JWT_SECRET: "test-secret-at-least-thirty-two-characters",
+        }),
+      ),
+      { knowledgeBase: { findMany } } as unknown as PrismaService,
+    );
+    const node = {
+      id: "knowledge",
+      type: "knowledge" as const,
+      position: { x: 0, y: 0 },
+      config: {
+        knowledgeBaseIds: ["owned"],
+        retrievalMode: "fulltext" as const,
+        topK: 3,
+        values: {},
+      },
+    };
+    try {
+      const result = await factory
+        .registry("owner")
+        .get("knowledge")
+        .execute(
+          node,
+          { query: "answer" },
+          { signal: new AbortController().signal },
+        );
+      expect(result.output.results).toMatchObject([
+        { documentId: "doc", knowledgeBaseId: "owned" },
+      ]);
+      expect(findMany).toHaveBeenCalledWith({
+        where: { id: { in: ["owned"] }, ownerId: "owner" },
+        select: { id: true, qdrantCollection: true },
+      });
+      expect(send).toHaveBeenCalledOnce();
+      expect(String(send.mock.calls[0]?.[0])).toContain("/points/scroll");
+      findMany.mockResolvedValue([]);
+      await expect(
+        factory
+          .registry("owner")
+          .get("knowledge")
+          .execute(
+            node,
+            { query: "answer" },
+            { signal: new AbortController().signal },
+          ),
+      ).rejects.toThrow("not available");
+      expect(send).toHaveBeenCalledOnce();
+      findMany.mockResolvedValue([
+        { id: "owned", qdrantCollection: "owned_collection" },
+      ]);
+      for (const retrievalMode of ["vector", "hybrid"] as const) {
+        await expect(
+          factory
+            .registry("owner")
+            .get("knowledge")
+            .execute(
+              { ...node, config: { ...node.config, retrievalMode } },
+              { query: "answer" },
+              { signal: new AbortController().signal },
+            ),
+        ).rejects.toThrow("embedding is not configured");
+      }
+      expect(send).toHaveBeenCalledOnce();
+    } finally {
+      send.mockRestore();
+    }
+  });
+
   it("requires an owned knowledge base before cloud embedding or Qdrant fetch", async () => {
     const send = vi.spyOn(globalThis, "fetch");
     const prisma = {

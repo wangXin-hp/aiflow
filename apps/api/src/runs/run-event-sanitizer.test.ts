@@ -39,6 +39,14 @@ describe("sanitizeRunEventPayload", () => {
   });
 
   it("handles deep, cyclic and unsupported values without throwing", () => {
+    const nested: Record<string, unknown> = {};
+    let cursor = nested;
+    for (let index = 0; index < 15; index++) {
+      const next: Record<string, unknown> = {};
+      cursor.status = next;
+      cursor = next;
+    }
+    expect(sanitizeRunEventPayload(nested, 1024)).toEqual({ truncated: true });
     const cyclic: Record<string, unknown> = { status: "RUNNING" };
     cyclic.self = cyclic;
     cyclic.function = () => 1;
@@ -52,6 +60,23 @@ describe("sanitizeRunEventPayload", () => {
   });
 
   it("turns proxy reflection failures into a safe marker", () => {
+    let ownKeysCalls = 0;
+    const ownKeysTrap = new Proxy(
+      { status: "RUNNING" },
+      {
+        ownKeys: () => {
+          ownKeysCalls++;
+          throw new Error("keys");
+        },
+        getOwnPropertyDescriptor: () => {
+          throw new Error("should not retry");
+        },
+      },
+    );
+    expect(sanitizeRunEventPayload(ownKeysTrap, 1024)).toEqual({
+      truncated: true,
+    });
+    expect(ownKeysCalls).toBe(1);
     const prototypeTrap = new Proxy(
       {},
       {
@@ -95,6 +120,13 @@ describe("sanitizeRunEventPayload", () => {
   });
 
   it("bounds UTF-8 bytes without slicing JSON", () => {
+    // Kelvin 符号通过 /iu 错误码白名单，但在 UTF-8 中占三个字节。
+    const unicode = { errorCode: "\u212a" };
+    const exact = new TextEncoder().encode(JSON.stringify(unicode)).byteLength;
+    expect(sanitizeRunEventPayload(unicode, exact)).toEqual(unicode);
+    expect(sanitizeRunEventPayload(unicode, exact - 1)).toEqual({
+      truncated: true,
+    });
     const result = sanitizeRunEventPayload(
       { status: "RUNNING", errorCode: "é".repeat(40) },
       32,

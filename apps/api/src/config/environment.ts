@@ -63,7 +63,8 @@ export const EnvironmentSchema = z
     RUN_TOTAL_TIMEOUT_MS: timerDelay.default(300000),
     RUN_MAX_NODES: positiveInteger.default(100),
     RUN_MAX_CONCURRENT: positiveInteger.default(4),
-    RUN_EVENT_MAX_BYTES: positiveInteger.default(65536),
+    // 公开事件必须容纳完整截断标记，且不能突破协议约定的 64 KiB 硬上限。
+    RUN_EVENT_MAX_BYTES: positiveInteger.min(18).max(65536).default(65536),
     RUN_HTTP_ALLOWED_HOSTS: z.string().default(""),
   })
   .superRefine((environment, context) => {

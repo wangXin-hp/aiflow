@@ -46,7 +46,11 @@ export class PrismaRunRepository implements RunRepository {
   }
 
   findOwned(ownerId: string, runId: string) {
-    return this.prisma.workflowRun.findFirst({ where: { id: runId, ownerId } });
+    // 在同一次 owner 受限查询中读取节点，详情不会从单独的 nodeId 查询泄漏跨租户记录。
+    return this.prisma.workflowRun.findFirst({
+      where: { id: runId, ownerId },
+      include: { nodes: { orderBy: [{ nodeId: "asc" }, { id: "asc" }] } },
+    });
   }
 
   listOwned(

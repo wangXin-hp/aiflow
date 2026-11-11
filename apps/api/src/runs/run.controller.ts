@@ -12,11 +12,7 @@ import {
 } from "@nestjs/common";
 import type { Response } from "express";
 import { z } from "zod";
-import {
-  CreateRunRequestSchema,
-  type CreateRunRequest,
-  type PublicUser,
-} from "@aiflow/contracts";
+import type { PublicUser } from "@aiflow/contracts";
 import { CurrentUser } from "../auth/current-user.decorator.js";
 import { ApiError } from "../common/api-error.js";
 import { ZodValidationPipe } from "../common/zod-validation.pipe.js";
@@ -41,8 +37,8 @@ export class RunController {
   async create(
     @CurrentUser() user: PublicUser,
     @Param("workflowId", idPipe) workflowId: string,
-    @Body(new ZodValidationPipe(CreateRunRequestSchema))
-    input: CreateRunRequest,
+    // 运行服务统一映射共享契约失败为 RUN_INPUT_INVALID，避免输入错误落入数据库 500。
+    @Body() input: unknown,
   ) {
     return {
       success: true as const,

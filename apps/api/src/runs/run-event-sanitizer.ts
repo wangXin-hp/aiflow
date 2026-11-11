@@ -48,7 +48,8 @@ function inspect(value: unknown): boolean {
     try {
       keys = Reflect.ownKeys(current.value);
     } catch {
-      return true;
+      // 交给外层直接生成截断标记，避免再读取同一故障对象的描述符。
+      throw new Error("event payload reflection failed");
     }
     if (keys.length > 128) return true;
     for (const key of keys) {

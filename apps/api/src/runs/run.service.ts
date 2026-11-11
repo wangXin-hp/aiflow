@@ -6,6 +6,7 @@ import {
   encodeWorkflowCursor,
   workflowV2Schema,
   type JsonObject,
+  type RunDetailResponse,
   type RunResponse,
   type WorkflowV2,
 } from "@aiflow/contracts";
@@ -16,7 +17,7 @@ import {
   type WorkflowRepository,
 } from "../workflows/workflow.repository.js";
 import { RunEventWriter } from "./run-event-writer.js";
-import { toRunResponse } from "./run.mapper.js";
+import { toRunDetailResponse, toRunResponse } from "./run.mapper.js";
 import { RUN_REPOSITORY, type RunRepository } from "./run.repository.js";
 
 export interface RunEnqueuer {
@@ -93,7 +94,12 @@ export class RunService {
     workflowId: string,
     body: unknown,
   ): Promise<RunResponse> {
-    const request = CreateRunRequestSchema.parse(body);
+    let request: ReturnType<typeof CreateRunRequestSchema.parse>;
+    try {
+      request = CreateRunRequestSchema.parse(body);
+    } catch {
+      throw new ApiError(400, "RUN_INPUT_INVALID", "运行输入格式无效");
+    }
     const workflow = await this.workflows.findActiveById(ownerId, workflowId);
     if (!workflow) throw missing();
     let definition: WorkflowV2;
@@ -156,10 +162,10 @@ export class RunService {
     return response;
   }
 
-  async get(ownerId: string, runId: string): Promise<RunResponse> {
+  async get(ownerId: string, runId: string): Promise<RunDetailResponse> {
     const row = await this.runs.findOwned(ownerId, runId);
     if (!row) throw new ApiError(404, "RUN_NOT_FOUND", "运行不存在");
-    return toRunResponse(row);
+    return toRunDetailResponse(row);
   }
 
   /** 按创建时间和 ID 降序分页；游标只编码排序键，不接收任意查询条件。 */

@@ -138,6 +138,20 @@ describe("run HTTP boundary (real PostgreSQL)", () => {
     ).toBe(404);
   });
 
+  it("rejects a lone UTF-16 surrogate before PostgreSQL writes", async () => {
+    const id = await workflow();
+    const response = await request(app.getHttpServer())
+      .post(`/api/workflows/${id}/runs`)
+      .set("Cookie", ownerCookie)
+      .set("Origin", origin)
+      .send({ input: { prompt: "\ud800" } });
+    expect(response.status).toBe(400);
+    expect(response.body.code).toBe("RUN_INPUT_INVALID");
+    expect(
+      await database.prisma.workflowRun.count({ where: { workflowId: id } }),
+    ).toBe(0);
+  });
+
   it("creates a persisted run, serves detail and replays safe terminal SSE", async () => {
     const id = await workflow();
     const created = await request(app.getHttpServer())

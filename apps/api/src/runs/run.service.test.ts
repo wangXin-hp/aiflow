@@ -92,6 +92,11 @@ describe("RunService (real PostgreSQL)", () => {
       runs.createDebugRun(owner.id, workflow.id, { input: { prompt: "a\0b" } }),
     ).rejects.toMatchObject({ status: 400, code: "RUN_INPUT_INVALID" });
     await expect(
+      runs.createDebugRun(owner.id, workflow.id, {
+        input: { prompt: "\ud800" },
+      }),
+    ).rejects.toMatchObject({ status: 400, code: "RUN_INPUT_INVALID" });
+    await expect(
       runs.createDebugRun(owner.id, workflow.id, { input: { prompt: null } }),
     ).rejects.toMatchObject({ status: 400 });
     expect(
@@ -139,6 +144,10 @@ describe("RunService (real PostgreSQL)", () => {
     await expect(runs.get(owner.id, run.id)).resolves.toMatchObject({
       id: run.id,
       status: "QUEUED",
+      nodes: [
+        { nodeId: "start", nodeType: "start", status: "PENDING", output: null },
+        { nodeId: "end", nodeType: "end", status: "PENDING", output: null },
+      ],
     });
     const changedDefinition: WorkflowV2 = structuredClone(definition);
     const end = changedDefinition.nodes.find((node) => node.type === "end");
@@ -154,6 +163,56 @@ describe("RunService (real PostgreSQL)", () => {
     await expect(
       runs.get((await db.createUser("run-foreign")).id, run.id),
     ).rejects.toMatchObject({ status: 404 });
+  });
+
+  it("notifies and enqueues only after the committed repository result is released", async () => {
+    const owner = await db.createUser("run-commit-gate");
+    const workflow = await workflows.create(owner.id, {
+      name: "flow",
+      definition,
+    });
+    const repository = new PrismaRunRepository(db.prisma);
+    const createQueued = repository.createQueued.bind(repository);
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let committed!: (runId: string) => void;
+    const committedResult = new Promise<string>((resolve) => {
+      committed = resolve;
+    });
+    vi.spyOn(repository, "createQueued").mockImplementation(async (input) => {
+      const row = await createQueued(input);
+      if (row) committed(row.id);
+      await gate;
+      return row;
+    });
+    const gateHub = new RunEventHub();
+    const gateNotify = vi.spyOn(gateHub, "notify");
+    const service = new RunService(
+      new PrismaWorkflowRepository(db.prisma),
+      repository,
+      new RunEventWriter(db.prisma, gateHub),
+      { enqueue: (id) => enqueued.push(id) },
+    );
+    const pending = service.createDebugRun(owner.id, workflow.id, {
+      input: { prompt: "hello" },
+    });
+    try {
+      const runId = await committedResult;
+      expect(
+        await db.prisma.runEvent.count({
+          where: { runId, type: "run.queued" },
+        }),
+      ).toBe(1);
+      expect(enqueued).toEqual([]);
+      expect(gateNotify).not.toHaveBeenCalled();
+    } finally {
+      release();
+    }
+    await expect(pending).resolves.toMatchObject({ status: "QUEUED" });
+    expect(enqueued).toHaveLength(1);
+    expect(gateNotify).toHaveBeenCalledOnce();
   });
 
   it("rolls back run and node rows if the queued event insert fails", async () => {
