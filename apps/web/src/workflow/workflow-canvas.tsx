@@ -93,6 +93,16 @@ export function WorkflowCanvas({
     });
   }, [flowInstance, focusRequest]);
   const elements = useMemo(() => toFlowElements(definition), [definition]);
+  if (pendingPort) {
+    const node = elements.nodes.find(({ id }) => id === pendingPort.nodeId);
+    const portExists =
+      node &&
+      (pendingPort.type === "source"
+        ? node.data.outputPorts.includes(pendingPort.handleId)
+        : node.type !== "start");
+    // 节点或意图分支消失时立即取消，避免下一次激活使用旧端口。
+    if (!portExists) setPendingPort(null);
+  }
   const edges = useMemo(
     () =>
       elements.edges.map((edge) => ({
@@ -329,7 +339,14 @@ export function WorkflowCanvas({
         >
           <Background gap={18} size={1} color="#bac4d5" />
           <Controls className="studio-controls" showInteractive={false} />
-          <MiniMap className="studio-minimap" pannable zoomable />
+          <MiniMap
+            className="studio-minimap"
+            bgColor="#fff"
+            nodeColor="#475569"
+            maskColor="#e2e8f040"
+            pannable
+            zoomable
+          />
         </ReactFlow>
         {selectedNode?.deletable && (
           <button

@@ -3,7 +3,7 @@ import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { Position, type HandleProps, type ReactFlowProps } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
-import { createStarterDefinition } from "./graph";
+import { addNode, createStarterDefinition, removeNode } from "./graph";
 import { type StudioNode } from "./node-card";
 import { WorkflowCanvas } from "./workflow-canvas";
 
@@ -259,6 +259,55 @@ describe("WorkflowCanvas", () => {
     ]);
     expect(output).toHaveAttribute("aria-pressed", "false");
   });
+
+  it.each(["删除节点", "移除意图端口"] as const)(
+    "%s后取消待连接端口",
+    (change) => {
+      const definition = addNode(createStarterDefinition(), "intent", {
+        x: 100,
+        y: 50,
+      });
+      const { rerender, onChange, onSelect } = setup(definition);
+      const output = screen.getByRole("button", {
+        name: /intent-1 输出 default$/,
+      });
+      fireEvent.keyDown(output, { key: "Enter" });
+      expect(output).toHaveAttribute("aria-pressed", "true");
+
+      const next =
+        change === "删除节点"
+          ? removeNode(definition, "intent-1")
+          : {
+              ...definition,
+              nodes: definition.nodes.map((node) =>
+                node.type === "intent"
+                  ? {
+                      ...node,
+                      config: {
+                        ...node.config,
+                        intents: [{ id: "updated", description: "" }],
+                      },
+                    }
+                  : node,
+              ),
+            };
+      rerender(
+        <WorkflowCanvas
+          definition={next}
+          onChange={onChange}
+          onSelect={onSelect}
+          selectedNodeId={null}
+        />,
+      );
+
+      expect(screen.queryByRole("status")).not.toBeInTheDocument();
+      const input = screen.getByRole("button", { name: "结束 end 输入" });
+      fireEvent.keyDown(input, { key: "Enter" });
+      expect(input).toHaveAttribute("aria-pressed", "true");
+      expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
 
   it("向页面报告节点选择和画布空白处取消选择", () => {
     const { definition, onChange, onSelect, rerender } = setup();

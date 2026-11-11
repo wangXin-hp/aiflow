@@ -211,6 +211,48 @@ describe("workflow workspace", () => {
     expect(screen.getByText("还没有工作流")).toBeVisible();
   });
 
+  it("focuses cancel when keyboard users open archive confirmation", async () => {
+    const ui = userEvent.setup();
+    mockRequests(() => page([draft]));
+    mount();
+    const trigger = await screen.findByRole("button", {
+      name: `归档 ${draft.name}`,
+    });
+    trigger.focus();
+    await ui.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: "取消" })).toHaveFocus();
+  });
+
+  it("returns focus to the archive trigger after cancel", async () => {
+    const ui = userEvent.setup();
+    mockRequests(() => page([draft]));
+    mount();
+    const triggerName = `归档 ${draft.name}`;
+    await ui.click(await screen.findByRole("button", { name: triggerName }));
+    screen.getByRole("button", { name: "取消" }).focus();
+    await ui.keyboard("{Enter}");
+    expect(screen.getByRole("button", { name: triggerName })).toHaveFocus();
+  });
+
+  it("focuses the list heading after successful archive", async () => {
+    const ui = userEvent.setup();
+    mockRequests((url) =>
+      url === "/api/workflows"
+        ? page([draft])
+        : new Response(null, { status: 204 }),
+    );
+    mount();
+    await ui.click(
+      await screen.findByRole("button", { name: `归档 ${draft.name}` }),
+    );
+    const confirm = screen.getByRole("button", { name: "确认归档" });
+    confirm.focus();
+    await ui.keyboard("{Enter}");
+    await waitFor(() =>
+      expect(screen.getByRole("heading", { name: "工作流" })).toHaveFocus(),
+    );
+  });
+
   it("rechecks the existing session after a list 401", async () => {
     let expired = false;
     fetchMock.mockImplementation(async (url) => {

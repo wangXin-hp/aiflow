@@ -119,33 +119,41 @@ describe("V2 graph commands", () => {
     ).toHaveLength(3);
   });
 
-  it("diagnoses missing direct and template references without changing config", () => {
-    const graph = addNode(createStarterDefinition(), "transform", position);
-    const id = graph.nodes.at(-1)!.id;
-    const reference = { kind: "reference", nodeId: id, key: "value" } as const;
-    const values = {
-      direct: reference,
-      template: { kind: "template", parts: ["text ", reference] } as const,
-      valid: { ...reference, nodeId: "start" },
-    };
-    const end = graph.nodes.find((node) => node.type === "end")!;
-    end.config.values = {
-      ...values,
-      template: { ...values.template, parts: [...values.template.parts] },
-    };
+  it.each(["direct", "template"] as const)(
+    "diagnoses missing %s references without changing config",
+    (kind) => {
+      const graph = addNode(createStarterDefinition(), "transform", position);
+      const id = graph.nodes.at(-1)!.id;
+      const reference = {
+        kind: "reference",
+        nodeId: id,
+        key: "value",
+      } as const;
+      const missing =
+        kind === "direct"
+          ? reference
+          : { kind: "template" as const, parts: ["text ", reference] };
+      const values = {
+        missing,
+        repeated: missing,
+        valid: { ...reference, nodeId: "start" },
+      };
+      const end = graph.nodes.find((node) => node.type === "end")!;
+      end.config.values = values;
 
-    const removed = removeNode(graph, id);
-    expect(findDanglingReferences(graph)).toEqual([]);
-    expect(findDanglingReferences(removed)).toEqual([
-      { nodeId: "end", sourceNodeId: id },
-    ]);
-    expect(
-      removed.nodes.find((node) => node.type === "end")?.config.values,
-    ).toEqual(values);
-    expect(
-      findDanglingReferences(addNode(removed, "transform", position)),
-    ).toEqual([{ nodeId: "end", sourceNodeId: id }]);
-  });
+      const removed = removeNode(graph, id);
+      expect(findDanglingReferences(graph)).toEqual([]);
+      expect(findDanglingReferences(removed)).toEqual([
+        { nodeId: "end", sourceNodeId: id },
+      ]);
+      expect(
+        removed.nodes.find((node) => node.type === "end")?.config.values,
+      ).toEqual(values);
+      expect(
+        findDanglingReferences(addNode(removed, "transform", position)),
+      ).toEqual([{ nodeId: "end", sourceNodeId: id }]);
+    },
+  );
 
   it("maps protocol ports to flow handles and copies positions", () => {
     const graph = createStarterDefinition();

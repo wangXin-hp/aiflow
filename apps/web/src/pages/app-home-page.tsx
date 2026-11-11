@@ -39,6 +39,8 @@ export function AppHomePage() {
   const [error, setError] = useState("");
   const [avatarFailed, setAvatarFailed] = useState(false);
   const activeRequest = useRef<AbortController | null>(null);
+  const listHeading = useRef<HTMLHeadingElement>(null);
+  const restoreArchiveFocus = useRef<string | null>(null);
   const reportInitialFailure = useEffectEvent((failure: unknown) => {
     setFirstPage("error");
     reportFailure(failure, "加载工作流失败，请重试");
@@ -116,6 +118,8 @@ export function AppHomePage() {
       if (signal.aborted) return;
       setItems((current) => current.filter((item) => item.id !== id));
       setArchiveId(null);
+      // 卡片即将移除，将焦点移至仍可继续导航的列表标题。
+      listHeading.current?.focus();
     });
   }
 
@@ -159,7 +163,9 @@ export function AppHomePage() {
       </header>
       <main className="workspace-main">
         <div className="workspace-heading">
-          <h1>工作流</h1>
+          <h1 ref={listHeading} tabIndex={-1}>
+            工作流
+          </h1>
           <button
             className="primary"
             disabled={operation !== null}
@@ -208,6 +214,13 @@ export function AppHomePage() {
                   </time>
                   {archiveId !== item.id && (
                     <button
+                      ref={(button) => {
+                        // 取消后触发器重新挂载，只恢复对应卡片的焦点一次。
+                        if (button && restoreArchiveFocus.current === item.id) {
+                          restoreArchiveFocus.current = null;
+                          button.focus();
+                        }
+                      }}
                       className="text-button"
                       disabled={operation !== null}
                       aria-label={`归档 ${item.name}`}
@@ -226,8 +239,12 @@ export function AppHomePage() {
                     <p>归档后，工作流将从列表移除。</p>
                     <button
                       className="secondary"
+                      autoFocus
                       disabled={operation !== null}
-                      onClick={() => setArchiveId(null)}
+                      onClick={() => {
+                        restoreArchiveFocus.current = item.id;
+                        setArchiveId(null);
+                      }}
                     >
                       取消
                     </button>
