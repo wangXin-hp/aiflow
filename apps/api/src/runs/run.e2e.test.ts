@@ -5,7 +5,7 @@ import { JwtService } from "@nestjs/jwt";
 import { Test } from "@nestjs/testing";
 import { randomUUID } from "node:crypto";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import type { WorkflowV2 } from "@aiflow/contracts";
 import { configureHttpApplication } from "../common/http-application.js";
 import { loadEnvironment, type Environment } from "../config/environment.js";
@@ -14,10 +14,16 @@ import { RunRecoveryService } from "./run-recovery.service.js";
 
 const origin = "http://127.0.0.1:5173";
 const secret = "run-http-test-secret-32-characters";
+const privateInput = "sse-private-input-marker-4f7a92";
 const definition: WorkflowV2 = {
   schemaVersion: 2,
   nodes: [
-    { id: "start", type: "start", position: { x: 0, y: 0 } },
+    {
+      id: "start",
+      type: "start",
+      position: { x: 0, y: 0 },
+      config: { inputs: [{ name: "prompt", type: "string", required: true }] },
+    },
     {
       id: "end",
       type: "end",
@@ -104,7 +110,7 @@ describe("run HTTP boundary (real PostgreSQL)", () => {
       .post(`/api/workflows/${id}/runs`)
       .set("Cookie", ownerCookie)
       .set("Origin", origin)
-      .send({ input: {} });
+      .send({ input: { prompt: privateInput } });
     expect(created.status).toBe(202);
     const runId = created.body.data.id as string;
     const foreign = await request(app.getHttpServer())
@@ -138,7 +144,7 @@ describe("run HTTP boundary (real PostgreSQL)", () => {
       .post(`/api/workflows/${id}/runs`)
       .set("Cookie", ownerCookie)
       .set("Origin", origin)
-      .send({ input: {} });
+      .send({ input: { prompt: privateInput } });
     expect(created.status).toBe(202);
     expect(created.body.data.status).toBe("QUEUED");
     const runId = created.body.data.id as string;
@@ -147,11 +153,25 @@ describe("run HTTP boundary (real PostgreSQL)", () => {
       .set("Cookie", ownerCookie);
     expect(detail.status).toBe(200);
     expect(detail.body.data.definitionSnapshot).toEqual(definition);
+    expect(detail.body.data.input.prompt).toBe(privateInput);
     const rows = await database.prisma.runEvent.findMany({
       where: { runId },
       orderBy: { id: "asc" },
     });
     expect(rows[0]?.type).toBe("run.queued");
+    // 回放测试先等确定性运行结束，失败时给出状态而非让 SSE 请求悬挂到超时。
+    await vi.waitFor(
+      async () => {
+        const persisted = await database.prisma.workflowRun.findUniqueOrThrow({
+          where: { id: runId },
+          select: { status: true },
+        });
+        expect(["SUCCEEDED", "FAILED", "CANCELLED", "INTERRUPTED"]).toContain(
+          persisted.status,
+        );
+      },
+      { timeout: 10_000 },
+    );
     const replay = await request(app.getHttpServer())
       .get(`/api/runs/${runId}/events`)
       .set("Cookie", ownerCookie)
@@ -159,7 +179,23 @@ describe("run HTTP boundary (real PostgreSQL)", () => {
     expect(replay.status).toBe(200);
     expect(replay.headers["content-type"]).toContain("text/event-stream");
     expect(replay.text).toContain(`id: ${rows[0]!.id.toString()}`);
+    expect(replay.text).not.toContain(privateInput);
     expect(replay.text).not.toMatch(/authorization|cookie|apiKey|password/i);
+    for (const line of replay.text.match(/^data: (.+)$/gm) ?? []) {
+      const parsed = JSON.parse(line.slice(6)) as { payload: object };
+      expect(
+        Object.keys(parsed.payload).every((key) =>
+          [
+            "status",
+            "elapsedMs",
+            "startedAt",
+            "finishedAt",
+            "errorCode",
+            "truncated",
+          ].includes(key),
+        ),
+      ).toBe(true);
+    }
     const later = await request(app.getHttpServer())
       .get(`/api/runs/${runId}/events`)
       .set("Cookie", ownerCookie)

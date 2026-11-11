@@ -1,4 +1,4 @@
-import { Inject, Injectable, type MessageEvent } from "@nestjs/common";
+import { Inject, Injectable, Logger, type MessageEvent } from "@nestjs/common";
 import { RunEventCursorSchema, RunEventSchema } from "@aiflow/contracts";
 import { Observable } from "rxjs";
 import { ApiError } from "../common/api-error.js";
@@ -23,6 +23,8 @@ const terminalStatuses = new Set([
 /** SSE 通知只唤醒查询；游标、去重和补发全部以 PostgreSQL 的有序事件为准。 */
 @Injectable()
 export class RunEventStreamService {
+  private readonly logger = new Logger(RunEventStreamService.name);
+
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(RunEventHub) private readonly hub: RunEventHub,
@@ -60,10 +62,8 @@ export class RunEventStreamService {
       const notifications = this.hub.notifications(runId).subscribe(wake);
       const heartbeat = setInterval(() => {
         if (authorized && !subscriber.closed)
-          subscriber.next({
-            type: "heartbeat",
-            data: { time: new Date().toISOString() },
-          });
+          // Nest 会给无 ID 的 data 帧自动编号；纯注释帧不会污染重连游标。
+          subscriber.next({ comment: "heartbeat" });
       }, heartbeatMs);
       const finish = () => {
         closed = true;
@@ -112,15 +112,26 @@ export class RunEventStreamService {
                 select: { status: true },
               });
               if (!run) throw new ApiError(404, "RUN_NOT_FOUND", "运行不存在");
-              // 若查询期间收到通知，先补读该事件再判断终态，避免遗漏最后一条。
-              if (terminalStatuses.has(run.status) && !pending) {
+              if (terminalStatuses.has(run.status)) {
+                // 状态查询可能看到比上一页更新的提交；再读一次游标后才能确认已消费终态。
+                const finalPage = await this.prisma.runEvent.findMany({
+                  where: { runId, id: { gt: cursor } },
+                  orderBy: { id: "asc" },
+                  take: pageSize,
+                });
+                if (finalPage.length > 0 || pending) {
+                  pending = true;
+                  continue;
+                }
                 finish();
                 return;
               }
             }
           }
-        } catch (error) {
-          subscriber.error(error);
+        } catch {
+          // 响应头可能已经提交；错误交给 Nest 会产生合成 ID 的 error 帧。
+          this.logger.warn("SSE 持久化读取失败，连接已关闭");
+          finish();
         } finally {
           reading = false;
           // 查询正结束时的新通知仍须启动下一轮，且不能与本轮并发。
@@ -133,7 +144,7 @@ export class RunEventStreamService {
           authorized = true;
           wake();
         },
-        (error: unknown) => subscriber.error(error),
+        () => finish(),
       );
       return () => {
         closed = true;

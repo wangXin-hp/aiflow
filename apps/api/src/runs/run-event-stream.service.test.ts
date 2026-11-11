@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { createRequire } from "node:module";
+import { PassThrough } from "node:stream";
 import { Subject } from "rxjs";
 import { describe, expect, it, vi } from "vitest";
 import { RunEventStreamService } from "./run-event-stream.service.js";
@@ -6,6 +8,26 @@ import { RunEventStreamService } from "./run-event-stream.service.js";
 const runId = randomUUID();
 const ownerId = randomUUID();
 const createdAt = new Date("2026-11-11T00:00:00.000Z");
+const { SseStream } = createRequire(import.meta.url)(
+  "@nestjs/core/router/sse-stream",
+) as {
+  SseStream: new () => PassThrough & {
+    writeMessage(message: Record<string, unknown>, done: () => void): void;
+  };
+};
+
+async function encodeWire(message: Record<string, unknown>): Promise<string> {
+  const stream = new SseStream();
+  const destination = new PassThrough();
+  let wire = "";
+  destination.on("data", (chunk: Buffer) => {
+    wire += chunk.toString();
+  });
+  stream.pipe(destination);
+  await new Promise<void>((resolve) => stream.writeMessage(message, resolve));
+  stream.end();
+  return wire;
+}
 
 function event(id: bigint, type = "node.started") {
   return {
@@ -129,7 +151,7 @@ describe("persisted run SSE stream", () => {
     await Promise.resolve();
     expect(pages).toEqual([]);
     rejectOwnership(null);
-    await expect(pending).rejects.toMatchObject({ status: 404 });
+    expect(await pending).toEqual([]);
   });
 
   it("subscribes before backlog query and catches an event committed during that query", async () => {
@@ -162,6 +184,30 @@ describe("persisted run SSE stream", () => {
         .filter((item) => item.id)
         .map((item) => item.id),
     ).toEqual(["1", "2"]);
+  });
+
+  it("rereads a terminal event committed after the last event page and before the status query", async () => {
+    const { service, rows, pages } = fixture([event(10n)]);
+    const prisma = (
+      service as unknown as {
+        prisma: {
+          workflowRun: { findFirst: (...args: unknown[]) => Promise<unknown> };
+        };
+      }
+    ).prisma;
+    const firstFind = prisma.workflowRun.findFirst;
+    let calls = 0;
+    prisma.workflowRun.findFirst = async (...args) => {
+      calls++;
+      if (calls === 2) rows.push(event(11n, "run.succeeded"));
+      return firstFind(...args);
+    };
+    const result = await collect(service.stream(ownerId, runId));
+    expect(result.filter((item) => item.id).map((item) => item.id)).toEqual([
+      "10",
+      "11",
+    ]);
+    expect(pages.map((page) => page.after)).toEqual([0n, 10n, 10n]);
   });
 
   it("pages 100 at a time and deduplicates repeated notifications", async () => {
@@ -199,16 +245,41 @@ describe("persisted run SSE stream", () => {
         .subscribe((value) => received.push(value));
       await Promise.resolve();
       await vi.advanceTimersByTimeAsync(15_000);
-      expect(received).toContainEqual(
-        expect.objectContaining({ type: "heartbeat" }),
+      const heartbeat = received.find(
+        (item) => "comment" in item || item.type === "heartbeat",
       );
-      expect(
-        received.find((item) => item.type === "heartbeat")?.id,
-      ).toBeUndefined();
+      expect(heartbeat).toBeDefined();
+      const wire = await encodeWire(heartbeat!);
+      expect(wire).toMatch(/: heartbeat/);
+      expect(wire).not.toMatch(/(?:^|\n)id:/);
+      expect(wire).not.toMatch(/(?:^|\n)event:/);
       expect(pages[0]?.after).toBe(0n);
       subscription.unsubscribe();
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("closes on a post-open query error without emitting a Nest error frame or synthetic ID", async () => {
+    const { service } = fixture([event(1n)]);
+    const prisma = (
+      service as unknown as {
+        prisma: {
+          workflowRun: { findFirst: (...args: unknown[]) => Promise<unknown> };
+        };
+      }
+    ).prisma;
+    const firstFind = prisma.workflowRun.findFirst;
+    let calls = 0;
+    prisma.workflowRun.findFirst = (...args) => {
+      calls++;
+      if (calls > 1) throw new Error("database unavailable");
+      return firstFind(...args);
+    };
+    const result = await collect(service.stream(ownerId, runId));
+    expect(result.map((item) => item.id)).toEqual(["1"]);
+    const wire = await encodeWire(result[0]!);
+    expect(wire).toContain("id: 1");
+    expect(wire).not.toContain("event: error");
   });
 });

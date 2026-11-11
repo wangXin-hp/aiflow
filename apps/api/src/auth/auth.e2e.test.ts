@@ -20,6 +20,7 @@ import {
 import { loadEnvironment, type Environment } from "../config/environment.js";
 import { configureHttpApplication } from "../common/http-application.js";
 import { PrismaService } from "../database/prisma.service.js";
+import { RunRecoveryService } from "../runs/run-recovery.service.js";
 import {
   AuthError,
   VerificationEmailSender,
@@ -82,6 +83,9 @@ describe("authentication HTTP boundary (real PostgreSQL)", () => {
     })
       .overrideProvider(ConfigService)
       .useValue(configuration)
+      // 并行 E2E 共用测试库；恢复扫描由独立用例验证，认证测试不触碰其他运行。
+      .overrideProvider(RunRecoveryService)
+      .useValue({ onModuleInit() {} })
       .overrideProvider(VerificationEmailSender)
       .useValue({
         async sendVerificationEmail(input: { to: string; token: string }) {

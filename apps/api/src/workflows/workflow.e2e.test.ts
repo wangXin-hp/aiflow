@@ -14,6 +14,7 @@ import {
 import { configureHttpApplication } from "../common/http-application.js";
 import { loadEnvironment, type Environment } from "../config/environment.js";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
+import { RunRecoveryService } from "../runs/run-recovery.service.js";
 
 const origin = "http://127.0.0.1:5173";
 const secret = "workflow-http-test-secret-32-characters";
@@ -67,6 +68,9 @@ describe("workflow HTTP boundary (real PostgreSQL)", () => {
     const module = await Test.createTestingModule({ imports: [AppModule] })
       .overrideProvider(ConfigService)
       .useValue(configuration)
+      // 工作流边界测试不执行全库恢复，避免干扰并行运行用例。
+      .overrideProvider(RunRecoveryService)
+      .useValue({ onModuleInit() {} })
       .compile();
     app = module.createNestApplication({ logger: false });
     configureHttpApplication(app);
