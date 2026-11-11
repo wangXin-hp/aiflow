@@ -1,6 +1,6 @@
 # AIFlow
 
-个人 AI 工作流平台。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供 React 登录、注册、邮箱验证与受保护的个人主页，NestJS 认证和工作流 CRUD API、PostgreSQL 持久化，以及独立的工作流协议与执行引擎；画布和运行持久化仍在后续开发阶段。
+个人 AI 工作流平台。产品范围和路线见 [设计草案](docs/superpowers/specs/2026-11-08-aiflow-design.md)。目前提供 React 认证页面、NestJS 工作流 CRUD 与调试运行 API、PostgreSQL 运行和事件持久化、可重连 SSE，以及独立的工作流协议与引擎。可视化画布仍在后续开发阶段。
 
 ## 环境与运行
 
@@ -29,24 +29,26 @@ pnpm dev
 
 API 无论从仓库根目录还是 `apps/api` 启动，都会读取根目录 `.env`，进程环境变量优先。配置在监听端口前统一校验；缺失 JWT 密钥、无效 URL/端口、非正整数执行限制或生产环境使用 console 邮件模式都会阻止启动。
 
-| 配置                                                           | 默认值与约束                                                            |
-| -------------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `NODE_ENV`                                                     | `development`，可选 `development`、`test`、`production`                 |
-| `API_HOST` / `API_PORT`                                        | `127.0.0.1` / `3000`；端口为 1–65535                                    |
-| `DATABASE_URL`                                                 | `postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow`                      |
-| `QDRANT_URL` / `QDRANT_API_KEY`                                | `http://127.0.0.1:6333` / 可选密钥                                      |
-| `WEB_PUBLIC_URL`                                               | `http://127.0.0.1:5173`，邮件回调所用的公开前端地址                     |
-| `JWT_SECRET` / `JWT_EXPIRES_IN_SECONDS`                        | 密钥必填且至少 32 字符 / `604800` 秒（7 天）                            |
-| `AUTH_LOGIN_RATE_LIMIT` / `AUTH_LOGIN_RATE_WINDOW_MS`          | `5` 次 / `60000` 毫秒，均为正整数                                       |
-| `AUTH_RESEND_RATE_LIMIT` / `AUTH_RESEND_RATE_WINDOW_MS`        | `3` 次 / `900000` 毫秒，均为正整数                                      |
-| `AUTH_EMAIL_MODE`                                              | `console`；生产环境必须显式设置 `smtp`                                  |
-| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM`      | smtp 模式必填，console 模式可缺省                                       |
-| `SMTP_PORT` / `SMTP_SECURE`                                    | `465` / `true`；布尔值仅接受 `true` 或 `false`                          |
-| `ARK_API_KEY` / `ARK_MODEL_ID` / `ARK_BASE_URL`                | 密钥和模型可选；基础地址默认 `https://ark.cn-beijing.volces.com/api/v3` |
-| `RUN_NODE_TIMEOUT_MS` / `RUN_TOTAL_TIMEOUT_MS`                 | `30000` / `300000` 毫秒，均为正整数                                     |
-| `RUN_MAX_NODES` / `RUN_MAX_CONCURRENT` / `RUN_EVENT_MAX_BYTES` | `100` / `4` / `65536`，均为正整数                                       |
+| 配置                                                           | 默认值与约束                                            |
+| -------------------------------------------------------------- | ------------------------------------------------------- |
+| `NODE_ENV`                                                     | `development`，可选 `development`、`test`、`production` |
+| `API_HOST` / `API_PORT`                                        | `127.0.0.1` / `3000`；端口为 1–65535                    |
+| `DATABASE_URL`                                                 | `postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow`      |
+| `QDRANT_URL` / `QDRANT_API_KEY`                                | `http://127.0.0.1:6333` / 可选密钥                      |
+| `WEB_PUBLIC_URL`                                               | `http://127.0.0.1:5173`，邮件回调所用的公开前端地址     |
+| `JWT_SECRET` / `JWT_EXPIRES_IN_SECONDS`                        | 密钥必填且至少 32 字符 / `604800` 秒（7 天）            |
+| `AUTH_LOGIN_RATE_LIMIT` / `AUTH_LOGIN_RATE_WINDOW_MS`          | `5` 次 / `60000` 毫秒，均为正整数                       |
+| `AUTH_RESEND_RATE_LIMIT` / `AUTH_RESEND_RATE_WINDOW_MS`        | `3` 次 / `900000` 毫秒，均为正整数                      |
+| `AUTH_EMAIL_MODE`                                              | `console`；生产环境必须显式设置 `smtp`                  |
+| `SMTP_HOST` / `SMTP_USER` / `SMTP_PASSWORD` / `SMTP_FROM`      | smtp 模式必填，console 模式可缺省                       |
+| `SMTP_PORT` / `SMTP_SECURE`                                    | `465` / `true`；布尔值仅接受 `true` 或 `false`          |
+| `ARK_API_KEY` / `ARK_MODEL_ID` / `ARK_EMBEDDING_MODEL_ID`      | 云端模型及向量化模型按需配置；离线示例无需密钥          |
+| `ARK_BASE_URL`                                                 | 默认 `https://ark.cn-beijing.volces.com/api/v3`         |
+| `RUN_NODE_TIMEOUT_MS` / `RUN_TOTAL_TIMEOUT_MS`                 | `30000` / `300000` 毫秒，均为正整数                     |
+| `RUN_MAX_NODES` / `RUN_MAX_CONCURRENT` / `RUN_EVENT_MAX_BYTES` | `100` / `4` / `65536`，均为正整数                       |
+| `RUN_HTTP_ALLOWED_HOSTS`                                       | 默认空；HTTP 节点需显式列出可信主机名                   |
 
-`pnpm db:generate`、`pnpm db:migrate`、`pnpm db:deploy` 分别生成 Prisma 客户端、创建开发迁移和应用已有迁移。认证 E2E 使用独立 PostgreSQL 测试库：先在本地创建 `aiflow_test`（如 `docker compose exec postgres createdb -U aiflow aiflow_test`，已有库无需重复创建），再用指向该库的 `DATABASE_URL` 执行 `pnpm db:deploy`。测试默认连接 `postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow_test`，可用 `TEST_DATABASE_URL` 覆盖，库名必须包含 `test`。每例使用随机邮箱并精确清理，邮件端口替换为内存 outbox，不发送外部邮件。CI 自动创建并迁移测试库。
+`pnpm db:generate`、`pnpm db:migrate`、`pnpm db:deploy` 分别生成 Prisma 客户端、创建开发迁移和应用已有迁移。真实 PostgreSQL E2E 使用独立测试库：先在本地创建 `aiflow_test`（如 `docker compose exec postgres createdb -U aiflow aiflow_test`，已有库无需重复创建），再用指向该库的 `DATABASE_URL` 执行 `pnpm db:deploy`。测试默认连接 `postgresql://aiflow:aiflow@127.0.0.1:5432/aiflow_test`，可用 `TEST_DATABASE_URL` 覆盖；测试辅助程序要求库名以 `_test` 结尾并核对实际连接库名。每例使用随机邮箱和按所有者限定的清理，不发送外部邮件。CI 自动创建并迁移测试库。
 
 ```sh
 pnpm lint
@@ -55,7 +57,7 @@ pnpm test
 pnpm build
 ```
 
-生产部署、反向代理和安全配置尚未提供，当前服务仅用于本地开发。
+当前提供本地单实例开发闭环，生产部署、反向代理、HTTPS 与真实 SMTP/豆包联调仍需另行配置和验收。
 
 ## 认证 API
 
@@ -68,6 +70,8 @@ pnpm build
 ## 工作流 API
 
 已登录用户可通过 `POST/GET /api/workflows` 与 `GET/PATCH/DELETE /api/workflows/:id` 创建、分页查看、修改和软归档自己的草稿。修改必须提交当前 `revision`，过期版本返回 409；其他用户的 ID 与未知 ID 均返回 404。`DELETE` 对自己的已归档工作流返回幂等 204。请求体须为 JSON，单次 HTTP 请求体上限为 2 MiB；超限返回固定的 `413 PAYLOAD_TOO_LARGE`，避免大图在解析阶段变成内部错误。
+
+`POST /api/workflows/:id/runs` 从当前草稿创建固定快照并返回 202；`GET /api/runs/:id` 查询状态，`POST /api/runs/:id/cancel` 协作取消，`GET /api/runs/:id/events` 以持久化事件 ID 发送 SSE。重连时传 `Last-Event-ID`，服务端按 PostgreSQL 游标补发，心跳不推进游标。运行与节点状态、取消竞争、超时和进程重启后的中断标记均由单实例 NestJS 进程管理。完整的本地命令、请求示例与边界见 [后端开发手册](docs/backend-development.md)。
 
 ## 代码质量与提交
 
