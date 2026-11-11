@@ -221,3 +221,22 @@
   left: 14px;
   margin: 0;
 }
+
+.studio-node .studio-handle[aria-pressed="true"] {
+  outline: 2px solid #4359c7;
+  outline-offset: 2px;
+}
+
+.studio-connection-hint {
+  position: absolute;
+  z-index: 6;
+  top: 14px;
+  left: 14px;
+  margin: 0;
+  padding: 7px 11px;
+  border: 1px solid #dce3ee;
+  border-radius: 8px;
+  background: #fff;
+  color: #334773;
+  font-size: 13px;
+}

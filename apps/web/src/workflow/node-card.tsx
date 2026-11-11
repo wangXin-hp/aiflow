@@ -3,17 +3,27 @@ import {
   Handle,
   Position,
   useUpdateNodeInternals,
+  type HandleType,
   type Node,
   type NodeProps,
 } from "@xyflow/react";
 import { useEffect } from "react";
 import { nodeAppearance } from "./node-appearance";
 
+/** 画布端口的协议标识及连接方向。 */
+export interface StudioPort {
+  nodeId: string;
+  handleId: string;
+  type: HandleType;
+}
+
 export type StudioNode = Node<
   {
     node: WorkflowNodeV2;
     outputPorts: string[];
     status?: NodeRunResponse["status"];
+    activePort: StudioPort | null;
+    onActivatePort: (port: StudioPort, pointerClick: boolean) => void;
   },
   "workflow"
 >;
@@ -34,7 +44,7 @@ const portLabels: Record<string, string> = {
 
 /** 端口 ID 直接使用协议值，显示名称不参与连线。 */
 export function NodeCard({ id, data, selected }: NodeProps<StudioNode>) {
-  const { node, outputPorts, status } = data;
+  const { node, outputPorts, status, activePort, onActivatePort } = data;
   const appearance = nodeAppearance[node.type];
   const updateNodeInternals = useUpdateNodeInternals();
   const portSignature = JSON.stringify(outputPorts);
@@ -44,17 +54,39 @@ export function NodeCard({ id, data, selected }: NodeProps<StudioNode>) {
     updateNodeInternals(id);
   }, [id, portSignature, status, updateNodeInternals]);
 
+  function renderPort(handleId: string, type: HandleType, label: string) {
+    const port = { nodeId: id, handleId, type };
+    const pressed =
+      activePort?.handleId === handleId && activePort.type === type;
+
+    // Handle 保留拖拽命中区域，点击和键盘激活共用画布的连线命令。
+    return (
+      <Handle
+        className="studio-handle"
+        id={handleId}
+        type={type}
+        position={type === "target" ? Position.Left : Position.Right}
+        role="button"
+        tabIndex={0}
+        aria-label={`${appearance.label} ${id} ${label}`}
+        aria-pressed={pressed}
+        onClick={(event) => {
+          event.stopPropagation();
+          onActivatePort(port, event.detail > 0);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          if (!event.repeat) onActivatePort(port, false);
+        }}
+      />
+    );
+  }
+
   return (
     <div className="studio-node" data-type={node.type} data-selected={selected}>
-      {node.type !== "start" && (
-        <Handle
-          className="studio-handle"
-          id="input"
-          type="target"
-          position={Position.Left}
-          aria-label="输入"
-        />
-      )}
+      {node.type !== "start" && renderPort("input", "target", "输入")}
       <div className="studio-node-heading">
         <span className="studio-node-icon" aria-hidden="true">
           {appearance.icon}
@@ -69,31 +101,19 @@ export function NodeCard({ id, data, selected }: NodeProps<StudioNode>) {
           {statusLabels[status]}
         </span>
       )}
-      {outputPorts.length === 1 && outputPorts[0] === "output" ? (
-        <Handle
-          className="studio-handle"
-          id="output"
-          type="source"
-          position={Position.Right}
-          aria-label="输出"
-        />
-      ) : (
-        outputPorts.map((port) => {
-          const label = node.type === "condition" ? portLabels[port] : port;
-          return (
-            <div className="studio-node-port" key={port}>
-              {label}
-              <Handle
-                className="studio-handle"
-                id={port}
-                type="source"
-                position={Position.Right}
-                aria-label={label}
-              />
-            </div>
-          );
-        })
-      )}
+      {node.type !== "intent" &&
+      outputPorts.length === 1 &&
+      outputPorts[0] === "output"
+        ? renderPort("output", "source", "输出")
+        : outputPorts.map((port) => {
+            const label = node.type === "condition" ? portLabels[port] : port;
+            return (
+              <div className="studio-node-port" key={port}>
+                {label}
+                {renderPort(port, "source", "输出 " + label)}
+              </div>
+            );
+          })}
     </div>
   );
 }

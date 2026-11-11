@@ -12,7 +12,7 @@ import {
   type Edge,
   type ReactFlowProps,
 } from "@xyflow/react";
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useMemo, useRef, useState } from "react";
 import "@xyflow/react/dist/style.css";
 import {
   addNode,
@@ -23,7 +23,7 @@ import {
   toFlowElements,
 } from "./graph";
 import { nodeAppearance } from "./node-appearance";
-import { NodeCard, type StudioNode } from "./node-card";
+import { NodeCard, type StudioNode, type StudioPort } from "./node-card";
 import "./studio.css";
 
 type AddableNodeType = Exclude<WorkflowNodeV2["type"], "start" | "end">;
@@ -36,6 +36,7 @@ const addableTypes = [
   "intent",
 ] satisfies AddableNodeType[];
 const nodeTypes = { workflow: NodeCard };
+const invalidPortsMessage = "无法连接这两个节点的端口";
 type FlowProps = ReactFlowProps<StudioNode, Edge>;
 
 /** 页面持有 V2 草稿与节点选择，画布只提交操作产生的新草稿。 */
@@ -53,7 +54,7 @@ function canDelete(node: WorkflowNodeV2) {
 
 function applyConnection(definition: WorkflowV2, connection: Connection) {
   if (connection.sourceHandle === null || connection.targetHandle !== "input") {
-    throw new Error("无法连接这两个节点的端口");
+    throw new Error(invalidPortsMessage);
   }
   return connectNodes(definition, {
     source: connection.source,
@@ -71,20 +72,10 @@ export function WorkflowCanvas({
   nodeStatuses,
 }: WorkflowCanvasProps) {
   const [connectionError, setConnectionError] = useState("");
+  const [pendingPort, setPendingPort] = useState<StudioPort | null>(null);
+  const draggedPort = useRef(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const elements = useMemo(() => toFlowElements(definition), [definition]);
-  const nodes = useMemo<StudioNode[]>(
-    () =>
-      elements.nodes.map((node) => ({
-        ...node,
-        type: "workflow",
-        selected: node.id === selectedNodeId,
-        deletable: canDelete(node.data.node),
-        ariaLabel: nodeAppearance[node.type].label + " " + node.id,
-        data: { ...node.data, status: nodeStatuses?.[node.id] },
-      })),
-    [elements.nodes, selectedNodeId, nodeStatuses],
-  );
   const edges = useMemo(
     () =>
       elements.edges.map((edge) => ({
@@ -140,11 +131,78 @@ export function WorkflowCanvas({
         setConnectionError("");
       } catch (error) {
         setConnectionError(
-          error instanceof Error ? error.message : "无法连接这两个节点的端口",
+          error instanceof Error ? error.message : invalidPortsMessage,
         );
       }
     },
     [definition, onChange],
+  );
+  const cancelConnection = useCallback(() => {
+    setPendingPort(null);
+    setConnectionError("");
+  }, []);
+  const handleDragConnectionStart = useCallback(() => {
+    draggedPort.current = true;
+    cancelConnection();
+  }, [cancelConnection]);
+  const handleDragConnectionEnd = useCallback<
+    NonNullable<FlowProps["onConnectEnd"]>
+  >((_, connection) => {
+    // 严格模式会拦截同方向端口，空白处松开则只是取消。
+    if (connection.isValid !== true) {
+      setConnectionError(connection.toHandle ? invalidPortsMessage : "");
+    }
+  }, []);
+  const handlePortActivation = useCallback(
+    (port: StudioPort, pointerClick: boolean) => {
+      // 拖回起始端口松开时浏览器可能随后派发 click。
+      if (pointerClick && draggedPort.current) return;
+      if (!pendingPort) {
+        setPendingPort(port);
+        setConnectionError("");
+        return;
+      }
+      setPendingPort(null);
+      if (pendingPort.type === port.type) {
+        const samePort =
+          pendingPort.nodeId === port.nodeId &&
+          pendingPort.handleId === port.handleId;
+        setConnectionError(samePort ? "" : invalidPortsMessage);
+        return;
+      }
+      const source = port.type === "source" ? port : pendingPort;
+      const target = port.type === "target" ? port : pendingPort;
+      handleConnect({
+        source: source.nodeId,
+        sourceHandle: source.handleId,
+        target: target.nodeId,
+        targetHandle: target.handleId,
+      });
+    },
+    [handleConnect, pendingPort],
+  );
+  const nodes = useMemo<StudioNode[]>(
+    () =>
+      elements.nodes.map((node) => ({
+        ...node,
+        type: "workflow",
+        selected: node.id === selectedNodeId,
+        deletable: canDelete(node.data.node),
+        ariaLabel: nodeAppearance[node.type].label + " " + node.id,
+        data: {
+          ...node.data,
+          status: nodeStatuses?.[node.id],
+          activePort: pendingPort?.nodeId === node.id ? pendingPort : null,
+          onActivatePort: handlePortActivation,
+        },
+      })),
+    [
+      elements.nodes,
+      selectedNodeId,
+      nodeStatuses,
+      pendingPort,
+      handlePortActivation,
+    ],
   );
   const handleDelete = useCallback<NonNullable<FlowProps["onDelete"]>>(
     ({ nodes: deletedNodes, edges: deletedEdges }) => {
@@ -167,7 +225,6 @@ export function WorkflowCanvas({
     },
     [definition, onChange, onSelect, selectedNodeId],
   );
-  const clearConnectionError = useCallback(() => setConnectionError(""), []);
 
   function addFromLibrary(type: AddableNodeType) {
     // 模板节点在首行，新增节点依次放入其下方的空位。
@@ -209,7 +266,18 @@ export function WorkflowCanvas({
           ))}
         </ul>
       </aside>
-      <div className="studio-canvas">
+      <div
+        className="studio-canvas"
+        onPointerDownCapture={() => {
+          draggedPort.current = false;
+        }}
+        onKeyDownCapture={(event) => {
+          if (event.key === "Escape" && pendingPort) {
+            event.stopPropagation();
+            cancelConnection();
+          }
+        }}
+      >
         <ReactFlow<StudioNode, Edge>
           aria-label="工作流画布"
           nodes={nodes}
@@ -219,7 +287,10 @@ export function WorkflowCanvas({
           onEdgesChange={handleEdgesChange}
           onConnect={handleConnect}
           onDelete={handleDelete}
-          onPaneClick={clearConnectionError}
+          onConnectStart={handleDragConnectionStart}
+          onConnectEnd={handleDragConnectionEnd}
+          connectOnClick={false}
+          onPaneClick={cancelConnection}
           multiSelectionKeyCode={null}
           edgesReconnectable={false}
           deleteKeyCode={["Backspace", "Delete"]}
@@ -246,6 +317,12 @@ export function WorkflowCanvas({
           >
             删除节点
           </button>
+        )}
+        {pendingPort && (
+          <p className="studio-connection-hint" role="status">
+            {pendingPort.type === "source" ? "选择输入端口" : "选择输出端口"}
+            ，按 Esc 取消连线
+          </p>
         )}
         {connectionError && (
           <p className="studio-connection-error" role="alert">

@@ -1,6 +1,7 @@
 import type { WorkflowV2 } from "@aiflow/contracts";
-import { fireEvent, render, screen } from "@testing-library/react";
-import type { ReactFlowProps } from "@xyflow/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { Position, type HandleProps, type ReactFlowProps } from "@xyflow/react";
 import { describe, expect, it, vi } from "vitest";
 import { createStarterDefinition } from "./graph";
 import { type StudioNode } from "./node-card";
@@ -85,7 +86,23 @@ vi.mock("@xyflow/react", () => ({
   Controls: () => null,
   MiniMap: () => null,
   Position: { Left: "left", Right: "right" },
-  Handle: () => null,
+  Handle: ({
+    role,
+    tabIndex,
+    "aria-label": label,
+    "aria-pressed": pressed,
+    onClick,
+    onKeyDown,
+  }: HandleProps) => (
+    <div
+      role={role}
+      tabIndex={tabIndex}
+      aria-label={label}
+      aria-pressed={pressed}
+      onClick={onClick}
+      onKeyDown={onKeyDown}
+    />
+  ),
   useUpdateNodeInternals: () => () => undefined,
 }));
 
@@ -149,6 +166,98 @@ describe("WorkflowCanvas", () => {
     fireEvent.click(screen.getByRole("button", { name: "验证连接" }));
     expect(screen.getByRole("alert")).toHaveTextContent("这两个端口已连接");
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("拖拽到同方向端口时提示，拖到空白取消时清除旧提示", () => {
+    const { onChange } = setup();
+    const from = {
+      nodeId: "start",
+      id: "output",
+      type: "source",
+      position: Position.Right,
+      width: 10,
+      height: 10,
+      x: 0,
+      y: 0,
+    } as const;
+    const to = { ...from, nodeId: "llm-1" };
+    const start = flow.nodes![0]!;
+    const fromNode = {
+      ...start,
+      measured: { width: 192, height: 54 },
+      internals: { positionAbsolute: start.position, z: 0, userNode: start },
+    };
+    const release = (toHandle: typeof to | null, isValid: false | null) => {
+      act(() =>
+        flow.onConnectEnd?.(new MouseEvent("mouseup"), {
+          isValid,
+          from: { x: 0, y: 0 },
+          fromHandle: from,
+          fromNode,
+          fromPosition: from.position,
+          to: { x: 40, y: 0 },
+          toHandle,
+          toNode: null,
+          toPosition: toHandle?.position ?? null,
+          pointer: { x: 40, y: 0 },
+        }),
+      );
+    };
+    release(to, false);
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "无法连接这两个节点的端口",
+    );
+    release(null, null);
+    expect(screen.queryByRole("alert")).toBeNull();
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("点击同方向端口时显示错误", () => {
+    const definition = createStarterDefinition();
+    definition.nodes.push({
+      id: "transform-1",
+      type: "transform",
+      position: { x: 100, y: 50 },
+      config: { values: {} },
+    });
+    const { onChange } = setup(definition);
+    fireEvent.click(screen.getByRole("button", { name: "开始 start 输出" }));
+    fireEvent.click(
+      screen.getByRole("button", { name: "数据转换 transform-1 输出" }),
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent(
+      "无法连接这两个节点的端口",
+    );
+    expect(onChange).not.toHaveBeenCalled();
+  });
+
+  it("通过可聚焦的输出和输入端口完成键盘连线", async () => {
+    const definition = createStarterDefinition();
+    definition.edges = [];
+    const { onChange } = setup(definition);
+    const user = userEvent.setup();
+    const output = screen.getByRole("button", { name: "开始 start 输出" });
+    const input = screen.getByRole("button", { name: "结束 end 输入" });
+    expect(output).toHaveAttribute("tabindex", "0");
+    expect(input).toHaveAttribute("tabindex", "0");
+    output.focus();
+    await user.keyboard("{Enter}");
+    expect(output).toHaveAttribute("aria-pressed", "true");
+    await user.keyboard("{Escape}");
+    expect(output).toHaveAttribute("aria-pressed", "false");
+    await user.keyboard("{Enter}");
+    input.focus();
+    await user.keyboard(" ");
+    expect(onChange.mock.calls[0]?.[0].edges).toEqual([
+      {
+        id: "edge-1",
+        source: "start",
+        sourcePort: "output",
+        target: "end",
+        targetPort: "input",
+      },
+    ]);
+    expect(output).toHaveAttribute("aria-pressed", "false");
   });
 
   it("向页面报告节点选择和画布空白处取消选择", () => {
