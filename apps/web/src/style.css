@@ -171,14 +171,21 @@ input[aria-invalid="true"] {
   color: white;
 }
 
-.primary:hover:not(:disabled) {
-  background: #3d51b9;
-}
-
 .secondary {
   border: 1px solid #d9e0ef;
   background: #f5f7fb;
   color: #334155;
+}
+
+.workspace .primary,
+.workspace .secondary {
+  width: auto;
+  min-height: 40px;
+  padding: 8px 14px;
+}
+
+.primary:hover:not(:disabled) {
+  background: #3d51b9;
 }
 
 .text-button {
@@ -282,5 +289,151 @@ input[aria-invalid="true"] {
 @media (prefers-reduced-motion: reduce) {
   button {
     transition: none;
+  }
+}
+
+.workspace {
+  align-self: start;
+  width: 100%;
+  min-height: 100svh;
+  background: #f5f7fb;
+}
+
+.app-shell:has(> .workspace) {
+  display: block;
+  padding: 0;
+}
+
+.workspace-nav {
+  position: sticky;
+  z-index: 1;
+  top: 0;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px 24px;
+  padding: 12px clamp(16px, 4vw, 48px);
+  border-bottom: 1px solid #e4e9f3;
+  background: #fff;
+}
+
+.workspace-nav .brand,
+.workspace-nav .profile,
+.workspace-heading h1 {
+  margin: 0;
+}
+
+.workspace-account,
+.workspace-heading,
+.workflow-card-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.workspace-account {
+  flex-wrap: wrap;
+}
+
+.workspace-account .avatar {
+  width: 36px;
+  height: 36px;
+  font-size: 16px;
+}
+
+.workspace .profile-details,
+.workflow-card {
+  overflow-wrap: anywhere;
+}
+
+.workspace-main {
+  max-width: 1200px;
+  margin-inline: auto;
+  padding: 40px clamp(16px, 4vw, 48px);
+}
+
+.workspace-heading {
+  margin-bottom: 24px;
+  flex-wrap: wrap;
+}
+
+.workspace-state,
+.workflow-card {
+  padding: 22px;
+  border: 1px solid #e4e9f3;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.workspace-state {
+  color: #64748b;
+  text-align: center;
+}
+
+.workflow-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 265px), 1fr));
+  gap: 16px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.workflow-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.workflow-card h2 {
+  margin: 0;
+  font-size: 18px;
+}
+
+.workflow-card h2 a {
+  color: #1e293b;
+}
+
+.workflow-card h2 a:hover {
+  color: #4359c7;
+  text-decoration: underline;
+}
+
+.workflow-card p {
+  margin: 0;
+}
+
+.workflow-card-footer {
+  margin-top: auto;
+  color: #64748b;
+  font-size: 13px;
+}
+
+.workflow-archive {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid #e4e9f3;
+}
+
+.workflow-archive p {
+  flex-basis: 100%;
+  font-size: 14px;
+}
+
+.workspace-more {
+  display: block;
+  margin: 24px auto 0;
+}
+
+@media (width <= 540px) {
+  .workspace-nav {
+    flex-wrap: wrap;
+  }
+
+  .workspace-main {
+    padding-block: 24px;
   }
 }
