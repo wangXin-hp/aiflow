@@ -20,6 +20,14 @@ Windows PowerShell 可用 `Copy-Item .env.example .env` 代替 `cp`。复制后�
 
 默认 API 为 `http://127.0.0.1:3000`，Web 为 `http://127.0.0.1:5173`。`WEB_PUBLIC_URL` 同时用于邮件链接与可信 Origin 校验。带会话 Cookie 的写请求须发送该 Origin；跨源浏览器请求还需携带 credentials。`AUTH_EMAIL_MODE=console` 仅供开发，验证链接写到本地 API 日志；生产环境必须使用 SMTP。运行 `llm`/知识节点时配置 `ARK_API_KEY`、`ARK_MODEL_ID`、需要向量化时的 `ARK_EMBEDDING_MODEL_ID`、`QDRANT_URL`。HTTP 节点需用 `RUN_HTTP_ALLOWED_HOSTS` 明确可信主机名，默认不开放外部主机。
 
+## 在浏览器中编辑和调试工作流
+
+打开 `http://127.0.0.1:5173/apps`，注册并打开 API 日志中的邮箱验证链接，随后登录。点击「新建工作流」进入 `/workflows/:id`，初始画布包含已连线的开始和结束节点。修改名称，在结束节点的「变量绑定」中添加字面量输出，点击「保存」并确认状态显示「已保存」。保存冲突时，先检查提示，再决定是否重新加载服务端草稿。
+
+点击「测试运行」并开始运行。最小图无需输入，也无需 Ark 密钥。查看输出、节点终态和事件追踪，再刷新页面检查草稿与当前运行详情。编辑过的草稿会在启动测试前保存；保存失败会阻止本次运行。运行 ID 保存在当前页面地址，供刷新时恢复详情。
+
+工作台支持列表、创建和归档。发布、API Key、知识库管理、运行历史列表和完整移动端编排留待后续阶段。桌面验收使用 1440×900 视口，参考项目目前只能按源码核对布局，仍需参考截图才能完成同视口比对。
+
 ## 从认证到运行
 
 以下 `sh` 命令适用于 POSIX shell（如 Bash）；`<...>` 均为需替换的示例值。Windows PowerShell 5.1 请使用本节后面的文件传参示例，不能仅把 `curl` 改成 `curl.exe`，否则内嵌 JSON 双引号可能被原生命令参数传递去掉。注册后从本地 API 日志取得一次性验证链接，访问 `/api/auth/verify?token=<token>`，再登录并保存 HttpOnly Cookie：

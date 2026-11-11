@@ -241,9 +241,10 @@
   font-size: 13px;
 }
 
-/* 编辑器占满应用外壳，画布和配置面板分别处理滚动。 */
+/* 清除登录页的水平居中，避免编辑器按内容宽度收缩。 */
 .app-shell:has(> .studio-editor) {
   display: block;
+  justify-items: normal;
   padding: 0;
   background: #f3f5f9;
 }
@@ -451,8 +452,7 @@
 }
 
 .studio-inspector.studio-run-panel {
-  width: min(420px, 36vw);
-  overflow-wrap: anywhere;
+  flex-basis: min(420px, 36vw);
 }
 
 .studio-run-heading,
@@ -504,10 +504,4 @@
   padding: 8px 10px;
   border: 1px solid #e2e7ef;
   border-radius: 8px;
-}
-
-@media (width <= 760px) {
-  .studio-inspector.studio-run-panel {
-    width: 100%;
-  }
 }
