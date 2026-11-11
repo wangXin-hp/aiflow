@@ -23,7 +23,7 @@ pnpm db:deploy
 pnpm dev
 ```
 
-`infra:up` 使用 `docker compose up -d --wait`，直到 PostgreSQL 与 Qdrant 健康后才返回。镜像固定为 `postgres:17.11-alpine3.24` 和 `qdrant/qdrant:v1.20.0`。两者使用具名卷持久化，仅向本机 `127.0.0.1` 开放 PostgreSQL 5432、Qdrant HTTP 6333 和 gRPC 6334。`pnpm infra:logs` 跟踪日志；`pnpm infra:down` 停止服务并保留数据卷。示例数据库口令 `aiflow` 只供本地开发；修改 `POSTGRES_*` 时同步修改 `DATABASE_URL`，已初始化卷的口令不会随环境变量自动改变。
+`infra:up` 使用 `docker compose up -d --wait`，直到 PostgreSQL 与 Qdrant 健康后才返回。镜像固定为 `postgres:17.11-alpine3.24` 和 `qdrant/qdrant:v1.20.0`。两者使用具名卷持久化，仅向本机 `127.0.0.1` 开放 PostgreSQL 5432、Qdrant HTTP 6333 和 gRPC 6334。5432 被占用时可设置 `POSTGRES_PORT=5433`，并同步修改 `DATABASE_URL`、`TEST_DATABASE_URL` 的端口；不停止其他项目的数据库。`pnpm infra:logs` 跟踪日志；`pnpm infra:down` 停止服务并保留数据卷。示例数据库口令 `aiflow` 只供本地开发；修改 `POSTGRES_*` 时同步修改 `DATABASE_URL`，已初始化卷的口令不会随环境变量自动改变。
 
 访问 Vite 启动时显示的地址（默认 http://localhost:5173），API 默认监听 127.0.0.1:3000，开发代理将 `/api` 转发给 API。健康检查为 `GET /api/health`。如果本机 Corepack 缓存失效，可使用 `npx --yes pnpm@10.34.9 install --frozen-lockfile` 及 `npx --yes pnpm@10.34.9 dev`。
 
