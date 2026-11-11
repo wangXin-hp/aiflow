@@ -22,7 +22,7 @@ const fetchMock =
   vi.fn<(url: string, init?: RequestInit) => Promise<Response>>();
 let stored = draft;
 
-function mount() {
+function mount(search = "") {
   const router = createMemoryRouter(
     [
       {
@@ -35,7 +35,7 @@ function mount() {
       },
       { path: "/apps", element: <h1>工作流列表</h1> },
     ],
-    { initialEntries: [`/workflows/${draft.id}`] },
+    { initialEntries: [`/workflows/${draft.id}${search}`] },
   );
   return render(<RouterProvider router={router} />);
 }
@@ -255,4 +255,134 @@ it("401 保存后在受保护路由上保留本地编辑，可恢复会话后重
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await screen.findByText("已保存");
   expect(stored.name).toBe("会话恢复后保存");
+});
+
+const runId = "123e4567-e89b-42d3-a456-426614174001";
+
+function declareQueryInput() {
+  const start = stored.definition.nodes.find((node) => node.type === "start")!;
+  start.config = {
+    inputs: [{ name: "query", type: "string", required: true }],
+  };
+}
+
+it("保存冲突时保留动态调试输入且不创建旧版本运行", async () => {
+  declareQueryInput();
+  mount();
+  const name = await screen.findByRole("textbox", { name: "工作流名称" });
+  fireEvent.change(name, { target: { value: "尚未保存的调试版本" } });
+  fireEvent.click(screen.getByRole("button", { name: "测试运行" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "query" }), {
+    target: { value: "当前输入" },
+  });
+  fetchMock.mockResolvedValueOnce(
+    Response.json({ code: "CONFLICT", message: "版本冲突" }, { status: 409 }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: "开始运行" }));
+  await screen.findByText("保存冲突");
+  expect(screen.getByRole("textbox", { name: "query" })).toHaveValue(
+    "当前输入",
+  );
+  expect(fetchMock.mock.calls.some(([url]) => url.endsWith("/runs"))).toBe(
+    false,
+  );
+});
+
+it("按 URL 恢复运行详情并显示受保护的节点输出", async () => {
+  const detail = {
+    id: runId,
+    workflowId: draft.id,
+    status: "SUCCEEDED",
+    definitionSnapshot: draft.definition,
+    input: { query: "请求" },
+    output: { answer: "运行结果" },
+    errorCode: null,
+    errorMessage: null,
+    createdAt: timestamp,
+    startedAt: timestamp,
+    finishedAt: timestamp,
+    nodes: [
+      {
+        id: "123e4567-e89b-42d3-a456-426614174002",
+        nodeId: "end",
+        nodeType: "end",
+        status: "SUCCEEDED",
+        input: null,
+        output: { answer: "节点结果" },
+        errorCode: null,
+        errorMessage: null,
+        startedAt: timestamp,
+        finishedAt: timestamp,
+        elapsedMs: 1,
+      },
+    ],
+  };
+  const fallback = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) =>
+    url === `/api/runs/${runId}`
+      ? Response.json({ success: true, data: detail })
+      : fallback(url, init),
+  );
+  mount(`?run=${runId}`);
+  expect(await screen.findByText(/"answer": "节点结果"/)).toBeInTheDocument();
+  expect(screen.getByText(/"answer": "运行结果"/)).toBeInTheDocument();
+});
+it("提交当前输入前保存草稿，随后可取消已创建的运行", async () => {
+  declareQueryInput();
+  const run = {
+    id: runId,
+    workflowId: draft.id,
+    status: "QUEUED",
+    definitionSnapshot: draft.definition,
+    input: { query: "调试参数" },
+    output: null,
+    errorCode: null,
+    errorMessage: null,
+    createdAt: timestamp,
+    startedAt: null,
+    finishedAt: null,
+  };
+  let cancelled = false;
+  const fallback = fetchMock.getMockImplementation()!;
+  fetchMock.mockImplementation(async (url, init) => {
+    if (url.endsWith("/runs")) {
+      expect(stored.name).toBe("已经保存的调试版本");
+      expect(JSON.parse(String(init?.body))).toEqual({
+        input: { query: "调试参数" },
+      });
+      return Response.json({ success: true, data: run });
+    }
+    if (url.endsWith("/cancel")) {
+      expect(init?.method).toBe("POST");
+      cancelled = true;
+      return Response.json({ success: true, data: { status: "CANCELLED" } });
+    }
+    if (url === `/api/runs/${runId}`) {
+      return Response.json({
+        success: true,
+        data: {
+          ...run,
+          status: cancelled ? "CANCELLED" : "QUEUED",
+          nodes: [],
+        },
+      });
+    }
+    return fallback(url, init);
+  });
+  vi.stubGlobal(
+    "EventSource",
+    class extends EventTarget {
+      close() {}
+    },
+  );
+  mount();
+  const name = await screen.findByRole("textbox", { name: "工作流名称" });
+  fireEvent.change(name, { target: { value: "已经保存的调试版本" } });
+  fireEvent.click(screen.getByRole("button", { name: "测试运行" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "query" }), {
+    target: { value: "调试参数" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "开始运行" }));
+  fireEvent.click(await screen.findByRole("button", { name: "取消运行" }));
+  expect(await screen.findByText("已取消")).toBeInTheDocument();
 });

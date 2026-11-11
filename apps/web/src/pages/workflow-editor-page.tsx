@@ -1,11 +1,14 @@
-import type { WorkflowResponse } from "@aiflow/contracts";
-import { useEffect, useEffectEvent, useState } from "react";
-import { Link, useBlocker, useParams } from "react-router-dom";
+import type { CreateRunRequest, WorkflowResponse } from "@aiflow/contracts";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
+import { Link, useBlocker, useParams, useSearchParams } from "react-router-dom";
+import { z } from "zod";
 import { ApiClientError } from "../auth/auth-api";
 import { useAuth } from "../auth/auth-state";
 import { NodeInspector } from "../workflow/node-inspector";
+import { RunPanel } from "../workflow/run-panel";
+import { useRunStream } from "../workflow/use-run-stream";
 import { useWorkflowDraft } from "../workflow/use-workflow-draft";
-import { workflowApi } from "../workflow/workflow-api";
+import { runApi, workflowApi } from "../workflow/workflow-api";
 import { WorkflowCanvas } from "../workflow/workflow-canvas";
 
 const discardMessage = "离开后，未保存的修改将丢失。";
@@ -21,6 +24,16 @@ function DraftEditor({
 }) {
   const workflow = useWorkflowDraft(initial);
   const { draft, dirty, saving, conflict } = workflow;
+  const [search, setSearch] = useSearchParams();
+  const requestedRun = search.get("run");
+  const parsedRun = z.uuid().safeParse(requestedRun);
+  const runId = parsedRun.data;
+  const stream = useRunStream(runId, initial.id);
+  const [runPanel, setRunPanel] = useState<boolean>();
+  const [startingRun, setStartingRun] = useState(false);
+  const [runError, setRunError] = useState<string>();
+  const pendingRun = useRef<{ active: boolean } | null>(null);
+  const showRunPanel = runPanel ?? requestedRun !== null;
   const [selectedNodeId, selectNode] = useState<string | null>(null);
   const [focusRequest, setFocusRequest] = useState<{ nodeId: string }>();
   const selected = draft.definition.nodes.find(
@@ -32,6 +45,50 @@ function DraftEditor({
       dirty && currentLocation.pathname !== nextLocation.pathname,
   );
   const blocked = blocker.state === "blocked";
+
+  useEffect(
+    () => () => {
+      if (pendingRun.current) pendingRun.current.active = false;
+    },
+    [],
+  );
+
+  async function startRun(input: CreateRunRequest) {
+    if (pendingRun.current) return;
+    const request = { active: true };
+    pendingRun.current = request;
+    setStartingRun(true);
+    setRunError(undefined);
+    try {
+      // save 返回 false 时，当前画布可能尚未持久化，不能运行服务端旧快照。
+      const saved = await workflow.save();
+      if (!request.active) return;
+      if (!saved) {
+        setRunError("当前修改尚未保存，保存成功后可开始运行。");
+        return;
+      }
+      const run = await runApi.create(initial.id, input);
+      if (!request.active) return;
+      setSearch(
+        (current) => {
+          const next = new URLSearchParams(current);
+          next.set("run", run.id);
+          return next;
+        },
+        { replace: true },
+      );
+    } catch (error) {
+      if (request.active)
+        setRunError(
+          error instanceof ApiClientError
+            ? error.message
+            : "启动运行失败，请重试",
+        );
+    } finally {
+      pendingRun.current = null;
+      if (request.active) setStartingRun(false);
+    }
+  }
 
   useEffect(() => {
     if (!dirty) return;
@@ -72,6 +129,14 @@ function DraftEditor({
         >
           保存
         </button>
+        <button
+          type="button"
+          className="studio-debug"
+          aria-expanded={showRunPanel}
+          onClick={() => setRunPanel(true)}
+        >
+          测试运行
+        </button>
       </header>
       {reloading && (
         <p className="studio-notice" role="status">
@@ -94,6 +159,7 @@ function DraftEditor({
                       onClick={() => {
                         selectNode(nodeId);
                         setFocusRequest({ nodeId });
+                        setRunPanel(false);
                       }}
                     >
                       {message}
@@ -134,8 +200,23 @@ function DraftEditor({
           selectedNodeId={selectedNodeId}
           onSelect={selectNode}
           focusRequest={focusRequest}
+          nodeStatuses={stream.nodeStatuses}
         />
-        {selected ? (
+        {showRunPanel ? (
+          <RunPanel
+            definition={draft.definition}
+            stream={stream}
+            runId={runId}
+            busy={startingRun}
+            unavailable={saving || conflict}
+            error={
+              runError ??
+              (requestedRun !== null && !runId ? "运行 ID 无效" : undefined)
+            }
+            onRun={startRun}
+            onClose={() => setRunPanel(false)}
+          />
+        ) : selected ? (
           <NodeInspector
             key={selected.id}
             node={selected}

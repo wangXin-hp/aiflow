@@ -208,7 +208,11 @@ export function WorkflowCanvas({
         ariaLabel: nodeAppearance[node.type].label + " " + node.id,
         data: {
           ...node.data,
-          status: nodeStatuses?.[node.id],
+          // 节点 ID 来自工作流定义，画布只展示实际收到的状态。
+          status:
+            nodeStatuses && Object.hasOwn(nodeStatuses, node.id)
+              ? nodeStatuses[node.id]
+              : undefined,
           activePort: pendingPort?.nodeId === node.id ? pendingPort : null,
           onActivatePort: handlePortActivation,
         },
