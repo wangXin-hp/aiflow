@@ -45,7 +45,7 @@
   font-size: 13px;
 }
 
-.studio-library button:hover {
+.studio-library button:where(:hover) {
   background: #f0f3fa;
 }
 
@@ -239,4 +239,201 @@
   background: #fff;
   color: #334773;
   font-size: 13px;
+}
+
+/* 编辑器占满应用外壳，画布和配置面板分别处理滚动。 */
+.app-shell:has(> .studio-editor) {
+  display: block;
+  padding: 0;
+  background: #f3f5f9;
+}
+
+.studio-editor {
+  display: flex;
+  flex-direction: column;
+  height: 100svh;
+  min-height: 420px;
+  color: #24314a;
+}
+
+.studio-header {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  min-height: 64px;
+  padding: 10px 20px;
+  border-bottom: 1px solid #e2e7ef;
+  background: #fff;
+}
+
+.studio-brand {
+  flex: none;
+  color: #293f9b;
+  font-weight: 700;
+}
+
+.studio-header input {
+  width: min(340px, 35vw);
+  min-width: 0;
+}
+
+.studio-save-status {
+  margin-inline-start: auto;
+  color: #516078;
+  white-space: nowrap;
+}
+
+.studio-save,
+.studio-notice button,
+.studio-leave button,
+.studio-inspector button {
+  padding: 7px 12px;
+  background: #e9eefc;
+  color: #2c409c;
+}
+
+.studio-save {
+  background: #4359c7;
+  color: #fff;
+}
+
+.studio-editor-body {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+}
+
+.studio-inspector {
+  flex: 0 0 min(400px, 34vw);
+  min-width: 0;
+  padding: 20px;
+  overflow: auto;
+  border-left: 1px solid #e2e7ef;
+  background: #fff;
+  overflow-wrap: anywhere;
+}
+
+.studio-inspector h2,
+.studio-inspector h3 {
+  margin: 0;
+  font-weight: 700;
+}
+
+.studio-node-id {
+  margin: 2px 0 16px;
+  color: #516078;
+  font-size: 13px;
+}
+
+.studio-inspector-fields,
+.studio-binding {
+  display: grid;
+  gap: 10px;
+  min-inline-size: 0;
+}
+
+.studio-binding {
+  padding: 10px;
+  border: 1px solid #e2e7ef;
+  border-radius: 8px;
+}
+
+.studio-inspector label {
+  display: block;
+  font-size: 14px;
+}
+
+.studio-inspector input:not([type="checkbox"]),
+.studio-inspector select,
+.studio-inspector textarea {
+  display: block;
+  width: 100%;
+  margin-top: 4px;
+  padding: 7px 8px;
+  border: 1px solid #cbd4e2;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+}
+
+.studio-inspector input[type="checkbox"] {
+  margin-inline-end: 6px;
+}
+
+.studio-inspector textarea {
+  resize: vertical;
+}
+
+.studio-inspector details {
+  margin-top: 20px;
+  padding-top: 12px;
+  border-top: 1px solid #e2e7ef;
+}
+
+.studio-inspector summary {
+  margin-bottom: 10px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.studio-inspector [role="alert"] {
+  color: #a42d27;
+}
+
+.studio-binding-row button {
+  margin-top: 4px;
+}
+
+.studio-notice {
+  padding: 10px 20px;
+  overflow: auto;
+  background: #fff6e2;
+  color: #6b420f;
+}
+
+.studio-notice ul {
+  display: grid;
+  gap: 6px;
+  margin: 0 0 8px;
+  list-style: none;
+}
+
+.studio-leave-overlay {
+  position: fixed;
+  z-index: 10;
+  display: grid;
+  place-items: center;
+  background: #17213b70;
+  inset: 0;
+}
+
+.studio-leave {
+  padding: 22px;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.studio-leave button {
+  margin: 12px 8px 0 0;
+}
+
+@media (width <= 760px) {
+  .studio-editor-body {
+    display: grid;
+    grid-template-rows: minmax(220px, 1fr) minmax(160px, 40%);
+  }
+
+  .studio-inspector {
+    border-top: 1px solid #e2e7ef;
+    border-left: none;
+  }
+
+  .studio-editor .studio-workspace {
+    grid-template-columns: minmax(100px, 26%) minmax(0, 1fr);
+  }
+
+  .studio-header {
+    gap: 8px;
+    padding-inline: 8px;
+  }
 }

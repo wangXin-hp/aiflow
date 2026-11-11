@@ -1,7 +1,11 @@
 import { encodeWorkflowCursor, type WorkflowResponse } from "@aiflow/contracts";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { MemoryRouter, useLocation } from "react-router-dom";
+import {
+  createMemoryRouter,
+  RouterProvider,
+  useLocation,
+} from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { App } from "../App";
 import { AuthProvider } from "../auth/auth-context";
@@ -64,14 +68,21 @@ function Location() {
   return <output aria-label="当前位置">{useLocation().pathname}</output>;
 }
 function mount(path = "/apps") {
-  render(
-    <MemoryRouter initialEntries={[path]}>
-      <AuthProvider>
-        <App />
-        <Location />
-      </AuthProvider>
-    </MemoryRouter>,
+  const router = createMemoryRouter(
+    [
+      {
+        path: "*",
+        element: (
+          <AuthProvider>
+            <App />
+            <Location />
+          </AuthProvider>
+        ),
+      },
+    ],
+    { initialEntries: [path] },
   );
+  render(<RouterProvider router={router} />);
 }
 function mockRequests(
   handler: (url: string, init?: RequestInit) => Response | Promise<Response>,
@@ -118,7 +129,8 @@ describe("workflow workspace", () => {
   it("creates a connected V2 draft and navigates to its protected route", async () => {
     const ui = userEvent.setup();
     mockRequests((url, init) =>
-      url === "/api/workflows" && init?.method === "POST"
+      (url === "/api/workflows" && init?.method === "POST") ||
+      url === `/api/workflows/${draft.id}`
         ? success(draft)
         : page(),
     );
