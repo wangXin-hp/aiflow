@@ -25,13 +25,22 @@ export class ApiClientError extends Error {
     this.name = "ApiClientError";
   }
 }
-const requestFailed = (status?: number) =>
+/** 响应不可用时统一提供可重试错误，并保留已知的 HTTP 状态。 */
+export const requestFailed = (status?: number) =>
   new ApiClientError(
     "REQUEST_FAILED",
     "请求失败，请稍后重试",
     undefined,
     status,
   );
+
+/** 仅采用经过共享契约验证的服务端错误字段。 */
+export function parseApiError(body: unknown, status: number): ApiClientError {
+  const result = ApiErrorSchema.safeParse(body);
+  if (!result.success) return requestFailed(status);
+  const { code, message, details } = result.data;
+  return new ApiClientError(code, message, details, status);
+}
 
 async function request<T extends z.ZodType>(
   path: string,
@@ -47,17 +56,7 @@ async function request<T extends z.ZodType>(
       // 即使代理返回非 JSON，也保留 401 的会话失效语义。
       throw requestFailed(response.status);
     });
-    if (!response.ok) {
-      const error = ApiErrorSchema.safeParse(body);
-      if (error.success)
-        throw new ApiClientError(
-          error.data.code,
-          error.data.message,
-          error.data.details,
-          response.status,
-        );
-      throw requestFailed(response.status);
-    }
+    if (!response.ok) throw parseApiError(body, response.status);
     const result = apiSuccessSchema(schema).safeParse(body);
     if (!result.success) throw requestFailed(response.status);
     // Zod 泛型对象的条件可选键无法被 TS 收窄；运行时已验证完整共享包装。
