@@ -22,7 +22,7 @@ Windows PowerShell 可用 `Copy-Item .env.example .env` 代替 `cp`。复制后�
 
 ## 从认证到运行
 
-以下命令展示协议，`<...>` 均为需替换的示例值。Windows PowerShell 请调用 `curl.exe`。注册后从本地 API 日志取得一次性验证链接，访问 `/api/auth/verify?token=<token>`，再登录并保存 HttpOnly Cookie：
+以下 `sh` 命令适用于 POSIX shell（如 Bash）；`<...>` 均为需替换的示例值。Windows PowerShell 5.1 请使用本节后面的文件传参示例，不能仅把 `curl` 改成 `curl.exe`，否则内嵌 JSON 双引号可能被原生命令参数传递去掉。注册后从本地 API 日志取得一次性验证链接，访问 `/api/auth/verify?token=<token>`，再登录并保存 HttpOnly Cookie：
 
 ```sh
 curl -X POST http://127.0.0.1:3000/api/auth/register -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' -d '{"email":"you@example.com","password":"replace-with-a-long-password"}'
@@ -38,6 +38,24 @@ curl -b cookies.txt -X POST 'http://127.0.0.1:3000/api/workflows/<workflow-id>/r
 curl -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>'
 curl -N -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>/events'
 ```
+
+Windows PowerShell 5.1 在仓库根目录使用 UTF-8 无 BOM 文件发送 JSON；`--data-binary '@文件名'` 让 curl 从文件读取请求体，保留 JSON 双引号。替换邮箱、密码和两个响应中的 ID 后依次执行：
+
+```powershell
+$utf8 = [System.Text.UTF8Encoding]::new($false)
+[System.IO.File]::WriteAllText('auth.json', '{"email":"you@example.com","password":"replace-with-a-long-password"}', $utf8)
+[System.IO.File]::WriteAllText('workflow.json', '{"name":"first run","definition":{"schemaVersion":2,"nodes":[{"id":"start","type":"start","position":{"x":0,"y":0}},{"id":"end","type":"end","position":{"x":200,"y":0},"config":{"values":{}}}],"edges":[{"id":"start-end","source":"start","sourcePort":"output","target":"end","targetPort":"input"}]}}', $utf8)
+[System.IO.File]::WriteAllText('run.json', '{"input":{}}', $utf8)
+curl.exe -X POST http://127.0.0.1:3000/api/auth/register -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@auth.json'
+curl.exe 'http://127.0.0.1:3000/api/auth/verify?token=<token>'
+curl.exe -c cookies.txt -X POST http://127.0.0.1:3000/api/auth/login -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@auth.json'
+curl.exe -b cookies.txt -X POST http://127.0.0.1:3000/api/workflows -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@workflow.json'
+curl.exe -b cookies.txt -X POST 'http://127.0.0.1:3000/api/workflows/<workflow-id>/runs' -H 'Content-Type: application/json' -H 'Origin: http://127.0.0.1:5173' --data-binary '@run.json'
+curl.exe -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>'
+curl.exe -N -b cookies.txt 'http://127.0.0.1:3000/api/runs/<run-id>/events'
+```
+
+这三个 JSON 文件含有登录凭据或请求数据，运行完后从本地目录删除。
 
 SSE 的 `id` 为 PostgreSQL 自增 BigInt 的十进制字符串。断线后以最后收到的 ID 请求补发；服务端只发送该 ID 之后的持久化事件，心跳注释不改变游标。已消费终态的连接会结束。
 

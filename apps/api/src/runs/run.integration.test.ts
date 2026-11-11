@@ -4,12 +4,14 @@ import { ConfigService } from "@nestjs/config";
 import { Test } from "@nestjs/testing";
 import { hash } from "bcryptjs";
 import request from "supertest";
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { WorkflowV2 } from "@aiflow/contracts";
 import { configureHttpApplication } from "../common/http-application.js";
 import { loadEnvironment, type Environment } from "../config/environment.js";
 import { createDatabaseTestContext } from "../test/database-test-context.js";
+import { RunCoordinator } from "./run-coordinator.js";
 import { RunRecoveryService } from "./run-recovery.service.js";
+import { RUN_ENQUEUER } from "./run.service.js";
 
 const origin = "http://127.0.0.1:5173";
 const secret = "run-integration-test-secret-32-characters";
@@ -47,6 +49,8 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
   let ownerCookie: string;
   let otherCookie: string;
   let connected = false;
+  let coordinator: RunCoordinator;
+  const enqueued: string[] = [];
 
   beforeAll(async () => {
     await database.connect();
@@ -66,7 +70,11 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
       // 共享测试库中的并行套件由自身清理；启动恢复另有独立集成测试。
       .overrideProvider(RunRecoveryService)
       .useValue({ onModuleInit() {} })
+      // 暂缓自动执行，保证 PATCH 提交在真实协调器首次读取运行定义之前。
+      .overrideProvider(RUN_ENQUEUER)
+      .useValue({ enqueue: (runId: string) => enqueued.push(runId) })
       .compile();
+    coordinator = module.get(RunCoordinator);
     app = module.createNestApplication({ logger: false });
     configureHttpApplication(app);
     await app.init();
@@ -117,33 +125,53 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
       .send({ input: { prompt: marker } });
     expect(started.status).toBe(202);
     const runId = started.body.data.id as string;
+    expect(enqueued).toEqual([runId]);
+    expect(
+      (
+        await database.prisma.workflowRun.findUniqueOrThrow({
+          where: { id: runId },
+        })
+      ).status,
+    ).toBe("QUEUED");
 
     const changed: WorkflowV2 = structuredClone(definition);
-    changed.nodes[1]!.config.values.answer = {
-      kind: "literal",
-      value: "changed",
-    };
+    changed.nodes = [
+      changed.nodes[0]!,
+      {
+        id: "middle",
+        type: "transform",
+        position: { x: 100, y: 0 },
+        config: { values: { extra: { kind: "literal", value: "new node" } } },
+      },
+      {
+        id: "end",
+        type: "end",
+        position: { x: 200, y: 0 },
+        config: { values: { answer: { kind: "literal", value: "changed" } } },
+      },
+    ];
+    changed.edges = [
+      { ...changed.edges[0]!, id: "start-middle", target: "middle" },
+      { ...changed.edges[0]!, id: "middle-end", source: "middle" },
+    ];
     const update = await request(app.getHttpServer())
       .patch(`/api/workflows/${workflowId}`)
       .set("Cookie", ownerCookie)
       .set("Origin", origin)
       .send({ revision: 1, definition: changed });
     expect(update.status).toBe(200);
-
-    await vi.waitFor(
-      async () => {
-        const run = await database.prisma.workflowRun.findUniqueOrThrow({
-          where: { id: runId },
-        });
-        expect(run.status).toBe("SUCCEEDED");
-      },
-      { timeout: 10_000 },
-    );
+    expect(update.body.data.definition).toEqual(changed);
+    await coordinator.execute(runId);
     const stored = await database.prisma.workflowRun.findUniqueOrThrow({
       where: { id: runId },
     });
+    expect(stored.status).toBe("SUCCEEDED");
     expect(stored.definitionSnapshot).toEqual(definition);
     expect(stored.output).toMatchObject({ answer: "original" });
+    // 新草稿包含 middle 节点；真实执行与预建节点行都只能来自启动快照。
+    const nodes = await database.prisma.nodeRun.findMany({ where: { runId } });
+    expect(nodes.map(({ nodeId }) => nodeId).sort()).toEqual(["end", "start"]);
+    expect(nodes.every(({ status }) => status === "SUCCEEDED")).toBe(true);
     const detail = await request(app.getHttpServer())
       .get(`/api/runs/${runId}`)
       .set("Cookie", ownerCookie);
@@ -159,34 +187,54 @@ describe("authenticated workflow persistence and SSE replay (real PostgreSQL)", 
       orderBy: { id: "asc" },
     });
     expect(persisted.length).toBeGreaterThan(2);
+    expect(
+      persisted.every(
+        ({ payload }) => !JSON.stringify(payload).includes(marker),
+      ),
+    ).toBe(true);
     const firstId = persisted[0]!.id.toString();
     const replay = await request(app.getHttpServer())
       .get(`/api/runs/${runId}/events`)
       .set("Cookie", ownerCookie)
-      .set("Last-Event-ID", firstId);
+      .set("Last-Event-ID", firstId)
+      .timeout({ deadline: 5_000 });
     expect(replay.status).toBe(200);
     expect(replay.headers["content-type"]).toContain("text/event-stream");
-    // 事件 ID 来自持久化 BigInt 游标；心跳和重连均不得插入合成 ID。
-    const replayIds = [...replay.text.matchAll(/^id: (\d+)$/gm)].map(
-      (match) => match[1],
-    );
-    expect(replayIds).toEqual(
-      persisted.slice(1).map((event) => event.id.toString()),
-    );
-    const replayData = [...replay.text.matchAll(/^data: (.+)$/gm)].map(
-      (match) =>
-        JSON.parse(match[1]!) as { id: string; type: string; payload: unknown },
-    );
-    expect(
-      replayData.map(({ id, type, payload }) => ({ id, type, payload })),
-    ).toEqual(
+    // 按帧核对游标、事件名和载荷，避免分别匹配整条响应而错配帧。
+    const frames = replay.text
+      .split(/\r?\n\r?\n/u)
+      .map((frame) => frame.trim())
+      .filter((frame) => frame.includes("id: "))
+      .map((frame) => {
+        const fields = Object.fromEntries(
+          frame.split(/\r?\n/u).map((line) => {
+            const separator = line.indexOf(": ");
+            return [line.slice(0, separator), line.slice(separator + 2)];
+          }),
+        );
+        const { id, type, payload } = JSON.parse(fields.data!) as {
+          id: string;
+          type: string;
+          payload: unknown;
+        };
+        return {
+          id: fields.id,
+          event: fields.event,
+          data: { id, type, payload },
+        };
+      });
+    expect(frames).toEqual(
       persisted.slice(1).map((event) => ({
         id: event.id.toString(),
-        type: event.type,
-        payload: event.payload,
+        event: event.type,
+        data: {
+          id: event.id.toString(),
+          type: event.type,
+          payload: event.payload,
+        },
       })),
     );
     expect(replay.text).not.toContain(marker);
-    expect(replay.text).toMatch(/event: run\.succeeded/u);
+    expect(frames.at(-1)?.event).toBe("run.succeeded");
   }, 20_000);
 });
