@@ -12,6 +12,7 @@
   "dependencies": {
     "@aiflow/contracts": "workspace:*",
     "@hookform/resolvers": "7.0.3",
+    "@xyflow/react": "12.12.1",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-hook-form": "7.91.0",
