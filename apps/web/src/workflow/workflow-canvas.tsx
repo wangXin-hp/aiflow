@@ -81,6 +81,10 @@ export function WorkflowCanvas({
   const [pendingPort, setPendingPort] = useState<StudioPort | null>(null);
   const draggedPort = useRef(false);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  // V2 协议只保存业务坐标；React Flow 的实测尺寸留在画布，供拖拽计算使用。
+  const [nodeMeasurements, setNodeMeasurements] = useState<
+    Record<string, { width: number; height: number }>
+  >({});
   useEffect(() => {
     if (!flowInstance || !focusRequest) return;
     const zoom = flowInstance.getZoom();
@@ -119,12 +123,26 @@ export function WorkflowCanvas({
       let next = definition;
       let selection = selectedNodeId;
       for (const change of changes) {
+        if (change.type === "dimensions" && change.dimensions) {
+          const dimensions = change.dimensions;
+          setNodeMeasurements((current) => {
+            const previous = current[change.id];
+            if (
+              previous?.width === dimensions.width &&
+              previous?.height === dimensions.height
+            ) {
+              return current;
+            }
+            return { ...current, [change.id]: dimensions };
+          });
+          continue;
+        }
         if (change.type === "select") {
           if (change.selected) selection = change.id;
           else if (selection === change.id) selection = null;
           continue;
         }
-        // 键盘移动和拖拽使用同一入口，忽略测量事件及无坐标变化的拖拽通知。
+        // 键盘移动和拖拽使用同一入口，忽略无坐标变化的拖拽通知。
         if (change.type !== "position" || !change.position) continue;
         const current = next.nodes.find(({ id }) => id === change.id);
         if (
@@ -212,6 +230,7 @@ export function WorkflowCanvas({
     () =>
       elements.nodes.map((node) => ({
         ...node,
+        measured: nodeMeasurements[node.id],
         type: "workflow",
         selected: node.id === selectedNodeId,
         deletable: canDelete(node.data.node),
@@ -229,6 +248,7 @@ export function WorkflowCanvas({
       })),
     [
       elements.nodes,
+      nodeMeasurements,
       selectedNodeId,
       nodeStatuses,
       pendingPort,
@@ -239,7 +259,15 @@ export function WorkflowCanvas({
     ({ nodes: deletedNodes, edges: deletedEdges }) => {
       let next = definition;
       for (const { id, data } of deletedNodes) {
-        if (canDelete(data.node)) next = removeNode(next, id);
+        if (canDelete(data.node)) {
+          next = removeNode(next, id);
+          setNodeMeasurements((current) => {
+            if (!(id in current)) return current;
+            const remaining = { ...current };
+            delete remaining[id];
+            return remaining;
+          });
+        }
       }
       for (const { id } of deletedEdges) {
         if (next.edges.some((edge) => edge.id === id)) {

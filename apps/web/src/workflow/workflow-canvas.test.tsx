@@ -136,6 +136,62 @@ describe("WorkflowCanvas", () => {
     });
   });
 
+  it("新增节点测量后保留尺寸，随后拖动并更新协议坐标", () => {
+    const { definition, onChange, onSelect, rerender } = setup();
+    fireEvent.click(screen.getByRole("button", { name: "大语言模型" }));
+    const added = onChange.mock.calls[0]![0];
+    rerender(
+      <WorkflowCanvas
+        definition={added}
+        onChange={onChange}
+        onSelect={onSelect}
+        selectedNodeId="llm-1"
+      />,
+    );
+    expect(
+      flow.nodes?.find(({ id }) => id === "llm-1")?.measured,
+    ).toBeUndefined();
+
+    act(() =>
+      flow.onNodesChange?.([
+        {
+          id: "llm-1",
+          type: "dimensions",
+          dimensions: { width: 192, height: 96 },
+        },
+      ]),
+    );
+    expect(flow.nodes?.find(({ id }) => id === "llm-1")?.measured).toEqual({
+      width: 192,
+      height: 96,
+    });
+    expect(onChange).toHaveBeenCalledTimes(1);
+
+    act(() =>
+      flow.onNodesChange?.([
+        { id: "llm-1", type: "position", position: { x: 240, y: 180 } },
+      ]),
+    );
+    const moved = onChange.mock.calls[1]![0];
+    expect(moved.nodes.find(({ id }) => id === "llm-1")?.position).toEqual({
+      x: 240,
+      y: 180,
+    });
+    rerender(
+      <WorkflowCanvas
+        definition={moved}
+        onChange={onChange}
+        onSelect={onSelect}
+        selectedNodeId="llm-1"
+      />,
+    );
+    expect(flow.nodes?.find(({ id }) => id === "llm-1")?.measured).toEqual({
+      width: 192,
+      height: 96,
+    });
+    expect(definition.nodes.some(({ id }) => id === "llm-1")).toBe(false);
+  });
+
   it("使用协议端口连线并反馈重复连接", () => {
     const definition = createStarterDefinition();
     definition.edges = [];
