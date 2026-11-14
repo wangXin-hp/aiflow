@@ -1,0 +1,154 @@
+.login-shell {
+    display: grid;
+    min-height: 100svh;
+    place-items: center;
+    padding: 32px 20px;
+    background: radial-gradient(ellipse at top, #eaf0ff, transparent 65%), #f5f7fb;
+    color: #1e293b;
+    font-family: Inter, 'Segoe UI', system-ui, sans-serif;
+}
+
+.login-card {
+    width: 100%;
+    max-width: 460px;
+    min-width: 0;
+    padding: 40px;
+    border: 1px solid #e4e9f3;
+    border-radius: 22px;
+    background: #fff;
+    box-shadow: 0 18px 70px #263e7310;
+    overflow-wrap: anywhere;
+}
+
+.login-brand {
+    display: inline-flex;
+    align-items: center;
+    margin-bottom: 36px;
+    font-size: 25px;
+    font-weight: 750;
+    letter-spacing: -1px;
+}
+
+.login-brand > span:first-child,
+.login-brand-mark {
+    color: #5268d6;
+}
+
+.login-brand-mark {
+    display: grid;
+    width: 30px;
+    height: 30px;
+    margin-left: 10px;
+    place-items: center;
+    border-radius: 9px;
+    background: #eef0ff;
+    font-size: 22px;
+}
+
+.login-eyebrow {
+    margin-bottom: 10px;
+    color: #64748b;
+    font-size: 13px;
+    letter-spacing: 0.08em;
+}
+
+.login-card h1 {
+    margin-bottom: 12px;
+    font-size: clamp(26px, 5vw, 32px);
+    font-weight: 700;
+    line-height: 1.3;
+    letter-spacing: -0.04em;
+}
+
+.login-description {
+    margin-bottom: 28px;
+    color: #64748b;
+    font-size: 14px;
+    line-height: 1.7;
+}
+
+.login-form > div {
+    margin-bottom: 20px;
+}
+
+.login-form label {
+    display: block;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.login-form input {
+    height: 46px;
+    padding: 0 13px;
+    border: 1px solid #cdd5e3;
+    border-radius: 9px;
+    background: #fff;
+    color: #1e293b;
+    box-shadow: none;
+}
+
+.login-form input::placeholder {
+    color: #64748b;
+}
+
+.login-form input[aria-invalid='true'] {
+    border-color: #c54646;
+}
+
+.login-card :is(a, button, input):focus-visible {
+    outline: 3px solid #8b9df2;
+    outline-offset: 3px;
+    box-shadow: none;
+}
+
+.login-form .login-primary {
+    width: 100%;
+    min-height: 46px;
+    padding: 12px 16px;
+    border-radius: 10px;
+    background: #4d63cf;
+    color: white;
+    font-weight: 600;
+}
+
+.login-form .login-primary:hover:not(:disabled) {
+    background: #3d51b9;
+}
+
+.login-mode {
+    margin-top: 20px;
+    color: #64748b;
+    font-size: 14px;
+    text-align: center;
+}
+
+.login-mode .login-switch {
+    height: auto;
+    padding: 7px;
+    color: #4359c7;
+    font-weight: 600;
+}
+
+.login-footer {
+    margin-top: 28px;
+    padding-top: 24px;
+    border-top: 1px solid #edf0f5;
+    color: #64748b;
+    font-size: 12px;
+    text-align: center;
+}
+
+@media (width <= 480px) {
+    .login-shell {
+        padding: 20px 16px;
+    }
+
+    .login-card {
+        padding: 28px 24px;
+        border-radius: 18px;
+    }
+
+    .login-brand {
+        margin-bottom: 28px;
+    }
+}

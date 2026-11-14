@@ -1,0 +1,21 @@
+{
+    "name": "@aiflow/react-server",
+    "private": true,
+    "type": "module",
+    "exports": "./index.ts",
+    "dependencies": {
+        "@hono/node-server": "^1.19.0",
+        "hono": "^4.13.18"
+    },
+    "peerDependencies": {
+        "vite": "^8.0.0"
+    },
+    "peerDependenciesMeta": {
+        "vite": {
+            "optional": true
+        }
+    },
+    "devDependencies": {
+        "vite": "8.3.7"
+    }
+}

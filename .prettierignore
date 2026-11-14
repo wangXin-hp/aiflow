@@ -1,7 +1,2 @@
-node_modules
-**/dist
-.turbo
-coverage
-pnpm-lock.yaml
-apps/api/src/generated/prisma/
-.superpowers/
+/dist
+*.yaml

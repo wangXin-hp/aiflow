@@ -1,55 +1,24 @@
 {
-  "$schema": "https://turbo.build/schema.json",
-  "tasks": {
-    "build": { "dependsOn": ["^build"], "outputs": ["dist/**"] },
-    "typecheck": { "dependsOn": ["^build"], "outputs": [] },
-    "test": { "dependsOn": ["^build"], "outputs": [] },
-    "dev": { "dependsOn": ["^build"], "cache": false, "persistent": true },
-    "@aiflow/api#test": {
-      "dependsOn": ["^build"],
-      "outputs": [],
-      "cache": false,
-      "env": ["DATABASE_URL", "TEST_DATABASE_URL", "JWT_SECRET"]
+    "$schema": "https://turbo.build/schema.json",
+    "tasks": {
+        "build:watch": {
+            "cache": false,
+            "persistent": true
+        },
+        "build": {
+            "dependsOn": ["^build"],
+            "outputs": ["dist/**", "build/**"]
+        },
+        "dev": {
+            "cache": false,
+            "persistent": true,
+            "dependsOn": ["^build"]
+        },
+        "typecheck": {
+            "cache": false,
+            "persistent": true
+        }
     },
-    "@aiflow/api#dev": {
-      "dependsOn": ["^build"],
-      "cache": false,
-      "persistent": true,
-      "env": [
-        "NODE_ENV",
-        "API_HOST",
-        "API_PORT",
-        "DATABASE_URL",
-        "DATABASE_POOL_MAX",
-        "DATABASE_CONNECTION_TIMEOUT_MS",
-        "DATABASE_IDLE_TIMEOUT_MS",
-        "QDRANT_URL",
-        "QDRANT_API_KEY",
-        "WEB_PUBLIC_URL",
-        "JWT_SECRET",
-        "JWT_EXPIRES_IN_SECONDS",
-        "AUTH_LOGIN_RATE_LIMIT",
-        "AUTH_LOGIN_RATE_WINDOW_MS",
-        "AUTH_RESEND_RATE_LIMIT",
-        "AUTH_RESEND_RATE_WINDOW_MS",
-        "AUTH_EMAIL_MODE",
-        "SMTP_HOST",
-        "SMTP_PORT",
-        "SMTP_SECURE",
-        "SMTP_USER",
-        "SMTP_PASSWORD",
-        "SMTP_FROM",
-        "ARK_API_KEY",
-        "ARK_MODEL_ID",
-        "ARK_EMBEDDING_MODEL_ID",
-        "ARK_BASE_URL",
-        "RUN_NODE_TIMEOUT_MS",
-        "RUN_TOTAL_TIMEOUT_MS",
-        "RUN_MAX_NODES",
-        "RUN_MAX_CONCURRENT",
-        "RUN_EVENT_MAX_BYTES",
-        "RUN_HTTP_ALLOWED_HOSTS"
-      ]
-    }
-  }
+    "ui": "tui",
+    "cacheDir": ".turbo/cache"
 }
