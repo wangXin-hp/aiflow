@@ -1,7 +1,7 @@
 'use client'
 
 import { CalendarIcon, XIcon } from 'lucide-react'
-import { useCallback, useEffect, useState, type MouseEvent } from 'react'
+import { type MouseEvent, useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
@@ -53,6 +53,7 @@ export function MonitoringDashboard({ appId }: MonitoringDashboardProps) {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 在请求开始时同步显示加载状态。
         loadStats()
     }, [loadStats])
 

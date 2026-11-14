@@ -17,6 +17,9 @@ const ignores = [
     '**/.next/**',
     '**/out/**',
     '**/build/**',
+    '**/dist/**',
+    'apps/*/app/generated/**',
+    'apps/api-server/src/generated/**',
     '**/next-env.d.ts',
 ]
 

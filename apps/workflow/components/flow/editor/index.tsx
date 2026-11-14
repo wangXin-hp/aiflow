@@ -225,6 +225,7 @@ function EditorInner({ appId, appName, initialNodes = [], initialEdges = [] }: F
     useEffect(() => {
         if (selectedNode) {
             const updatedNode = nodes.find(n => n.id === selectedNode.id)
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 画布变化后同步选中节点的设置面板。
             setSelectedNode(updatedNode ?? null)
         }
     }, [nodes])

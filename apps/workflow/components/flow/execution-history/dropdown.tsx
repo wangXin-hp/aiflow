@@ -166,6 +166,7 @@ export function ExecutionHistoryDropdown({ appId, onSelectExecution, children }:
     // Reset and fetch when dropdown opens
     useEffect(() => {
         if (open) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 重新打开时清除上一次的分页状态。
             setExecutions([])
             setNextCursor(null)
             fetchExecutions(null, false)

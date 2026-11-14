@@ -30,6 +30,7 @@ export function EditAppDialog({ open, onOpenChange, app, onAppUpdated }: EditApp
     // 当 app 变化时，更新表单值
     useEffect(() => {
         if (app) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换应用时同步重置编辑表单。
             setName(app.name)
             setDescription(app.description || '')
             setIcon(app.icon || '🤖')

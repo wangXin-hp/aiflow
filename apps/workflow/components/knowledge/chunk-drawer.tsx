@@ -1,7 +1,7 @@
 'use client'
 
 import { BrainIcon, ChevronDownIcon, FileTextIcon, Loader2Icon } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { toast } from 'sonner'
 
 import { Badge } from '@/components/ui/badge'
@@ -25,17 +25,7 @@ export function ChunkDrawer({ open, onOpenChange, document, knowledgeBaseId }: C
     const [documentStats, setDocumentStats] = useState<DocumentStats | null>(null)
     const [expandedChunks, setExpandedChunks] = useState<Set<string>>(new Set())
 
-    useEffect(() => {
-        if (open && document) {
-            loadChunks()
-        } else {
-            setChunks([])
-            setDocumentStats(null)
-            setExpandedChunks(new Set())
-        }
-    }, [open, document])
-
-    const loadChunks = async () => {
+    const loadChunks = useCallback(async () => {
         if (!document) return
         try {
             setLoading(true)
@@ -47,7 +37,18 @@ export function ChunkDrawer({ open, onOpenChange, document, knowledgeBaseId }: C
         } finally {
             setLoading(false)
         }
-    }
+    }, [document, knowledgeBaseId])
+
+    useEffect(() => {
+        if (open && document) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 打开面板时同步显示加载状态。
+            loadChunks()
+        } else {
+            setChunks([])
+            setDocumentStats(null)
+            setExpandedChunks(new Set())
+        }
+    }, [open, document, loadChunks])
 
     const toggleChunk = (chunkId: string) => {
         setExpandedChunks(prev => {

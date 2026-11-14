@@ -1,7 +1,7 @@
 'use client'
 
 import { FileTextIcon, FilterIcon, Loader2Icon, RefreshCwIcon, SearchIcon, Trash2Icon, UploadIcon, XIcon } from 'lucide-react'
-import { useCallback, useEffect, useRef, useState, type MouseEvent } from 'react'
+import { type MouseEvent, useCallback, useEffect, useRef, useState } from 'react'
 import { toast } from 'sonner'
 
 import { ChunkDrawer } from '@/components/knowledge/chunk-drawer'
@@ -214,6 +214,7 @@ export function DocumentList() {
     }
 
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 在请求开始时同步显示加载状态。
         loadDocuments()
     }, [loadDocuments])
 

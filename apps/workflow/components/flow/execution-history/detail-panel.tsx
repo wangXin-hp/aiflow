@@ -157,6 +157,7 @@ export function ExecutionDetailPanel({ open, onOpenChange, appId, executionId, n
     // Fetch detail when panel opens or executionId changes
     useEffect(() => {
         if (open && executionId) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 在请求开始时同步显示加载状态。
             fetchDetail()
         }
     }, [open, executionId, fetchDetail])

@@ -107,7 +107,7 @@ export function EndSettingsForm({ node, onSave, onCancel, flowContext }: NodeSet
     useEffect(() => {
         if (node.id !== currentNodeIdRef.current) {
             currentNodeIdRef.current = node.id
-            // eslint-disable-next-line react-hooks/set-state-in-effect
+
             setOutputs(configOutputs)
         }
     }, [node.id, configOutputs])

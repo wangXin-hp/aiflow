@@ -1,5 +1,7 @@
 'use client'
 
+import './login.css'
+
 import { useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useNavigate } from 'react-router'
@@ -8,8 +10,6 @@ import { toast } from 'sonner'
 import { Button } from '@/components/ui/button'
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-
-import './login.css'
 
 interface LoginFormValues {
     email: string

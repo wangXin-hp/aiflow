@@ -43,6 +43,7 @@ export function KnowledgeSettings() {
 
     useEffect(() => {
         if (knowledgeBase) {
+            // eslint-disable-next-line react-hooks/set-state-in-effect -- 切换知识库时同步填充编辑表单。
             setFormData({
                 name: knowledgeBase.name,
                 description: knowledgeBase.description || '',

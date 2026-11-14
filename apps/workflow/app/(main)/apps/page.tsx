@@ -67,6 +67,7 @@ export default function AppsPage() {
 
     // 初始化加载
     useEffect(() => {
+        // eslint-disable-next-line react-hooks/set-state-in-effect -- 在请求开始时同步显示加载状态。
         loadApps()
     }, [loadApps])
 
